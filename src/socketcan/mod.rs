@@ -3,6 +3,7 @@ mod sys;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::io;
 use crate::can::CanMessage;
+use crate::CanMessage;
 
 pub struct CanSocket {
     inner: RawFd,
