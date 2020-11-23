@@ -13,6 +13,8 @@ const CAN_EFF_ID_BITS: u32 = 29;
 const CAN_MAX_DLC: usize = 8;
 const CAN_MAX_DLEN: usize = 8;
 
+pub const CAN_RAW: usize = 1;
+
 #[repr(C)]
 pub(crate) struct CanFrame {
     id: u32,
@@ -23,7 +25,6 @@ pub(crate) struct CanFrame {
     data: [u8; CAN_MAX_DLEN],
 }
 
-const CAN_RAW: usize = 1;
 
 enum CanFrameError {
     IdTooLong,
