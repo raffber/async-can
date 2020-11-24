@@ -1,28 +1,41 @@
-mod sys;
-
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::ffi::{c_void, CString};
 use std::io;
-use crate::CanMessage;
+use std::mem::{MaybeUninit, size_of};
+use std::os::raw::{c_int, c_short};
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::task::Poll;
+
+use futures::future::poll_fn;
+use futures::ready;
 use libc;
 use libc::sockaddr;
-use std::ffi::{CString, c_void};
-use std::os::raw::{c_int, c_short};
-use crate::socketcan::sys::{SocketAddr, AF_CAN, CanFrame};
-use std::mem::size_of;
+use mio::{PollOpt, Ready, Token};
 use mio::event::Evented;
-use mio::unix::EventedFd;
-use mio::{Ready, PollOpt, Token};
-use std::task::Poll;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::Context;
-use futures::ready;
-use tokio::io::PollEvented;
+use mio::unix::{EventedFd, UnixReady};
+use tokio::io::{ErrorKind, PollEvented};
+
+use crate::CanMessage;
+use crate::socketcan::sys::{AF_CAN, CanFrame, CanSocketAddr};
+
+mod sys;
+
+impl AsRawFd for EventedSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0
+    }
+}
 
 struct EventedSocket(RawFd);
 
 pub struct CanSocket {
     inner: PollEvented<EventedSocket>,
+}
+
+
+impl AsRawFd for CanSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.inner.get_ref().as_raw_fd()
+    }
 }
 
 impl CanSocket {
@@ -41,71 +54,100 @@ impl CanSocket {
             return Err(io::Error::last_os_error());
         }
 
-        let addr = SocketAddr {
+        let addr = CanSocketAddr {
             _af_can: AF_CAN as c_short,
             if_index: ifindex as c_int,
             rx_id: 0,
             tx_id: 0,
         };
         let ok = unsafe {
-            libc::bind(fd, &addr as *const SocketAddr as *const sockaddr, size_of::<SocketAddr>() as u32)
+            libc::bind(fd, &addr as *const CanSocketAddr as *const sockaddr, size_of::<CanSocketAddr>() as u32)
         };
         if ok != 0 {
             return Err(io::Error::last_os_error());
         }
-        let inner = PollEvented::new(EventedSocket(fd)).expect("No tokio runtime");
+
+        // set non-blocking mode for asyncio
+        let nonblocking = true;
+        let ok = unsafe {
+            libc::ioctl(fd, libc::FIONBIO, &(nonblocking as c_int))
+        };
+        if ok != 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let inner = PollEvented::new(EventedSocket(fd))?;
         Ok(Self {
             inner
         })
     }
 
-    async fn recv(&self) -> io::Result<CanMessage> {
-        todo!()
-    }
-
-    fn send(&self, msg: &CanMessage) -> Write {
-        todo!()
-    }
-}
-
-pub struct Write {
-    socket: CanSocket,
-    frame: CanFrame,
-}
-
-impl Future for Write {
-    type Output = io::Result<()>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        ready!(self.socket.inner.poll_write_ready(cx))?;
-
-        let written = unsafe {
-            libc::write(self.socket.inner, &self.frame as *const CanFrame as *const c_void, size_of::<CanFrame>())
+    fn read_from_fd(&self) -> io::Result<CanMessage> {
+        let mut frame = MaybeUninit::<CanFrame>::uninit();
+        let (frame, size) = unsafe {
+            let size = libc::read(self.as_raw_fd(), frame.as_mut_ptr() as *mut c_void, size_of::<CanFrame>());
+            (frame.assume_init(), size as usize)
         };
-        if written as usize != size_of::<CanFrame>() {
-            Poll::Ready(Err(io::Error::last_os_error()))
-        } else {
-            Poll::Ready(Ok(()))
+        if size != size_of::<CanFrame>() {
+            return Err(io::Error::last_os_error());
         }
+        Ok(frame.into())
+    }
+
+    pub async fn recv(&self) -> io::Result<CanMessage> {
+        let ready = Ready::readable() | Ready::from(UnixReady::error());
+        poll_fn(|cx| {
+            ready!(self.inner.poll_read_ready(cx, ready))?;
+            match self.read_from_fd() {
+                Err(e) => {
+                    if e.kind() == ErrorKind::WouldBlock {
+                        self.inner.clear_read_ready(cx, ready)?;
+                        Poll::Pending
+                    } else {
+                        Poll::Ready(Err(e))
+                    }
+                }
+                Ok(ret) => Poll::Ready(Ok(ret)),
+            }
+        }).await
+    }
+
+    pub async fn send(&self, msg: CanMessage) -> io::Result<()> {
+        let frame: CanFrame = msg.into();
+        poll_fn(|cx| {
+            ready!(self.inner.poll_write_ready(cx))?;
+            let frame = &frame as *const CanFrame as *const c_void;
+            let written = unsafe {
+                libc::write(self.as_raw_fd(), frame, size_of::<CanFrame>())
+            };
+            if written as usize != size_of::<CanFrame>() {
+                let err = io::Error::last_os_error();
+                if err.kind() == ErrorKind::WouldBlock {
+                    // would block so not yet ready
+                    self.inner.clear_write_ready(cx)?;
+                    Poll::Pending
+                } else {
+                    // an actual error
+                    Poll::Ready(Err(err))
+                }
+            } else {
+                // successfully sent
+                Poll::Ready(Ok(()))
+            }
+        }).await
     }
 }
 
-impl AsRawFd for CanSocket {
-    fn as_raw_fd(&self) -> RawFd {
-        self.inner
-    }
-}
-
-impl Evented for CanSocket {
+impl Evented for EventedSocket {
     fn register(&self, poll: &mio::Poll, token: Token, interest: Ready, opts: PollOpt) -> io::Result<()> {
-        EventedFd(&self.inner).register(poll, token, interest, opts)
+        EventedFd(&self.0).register(poll, token, interest, opts)
     }
 
     fn reregister(&self, poll: &mio::Poll, token: Token, interest: Ready, opts: PollOpt) -> io::Result<()> {
-        EventedFd(&self.inner).reregister(poll, token, interest, opts)
+        EventedFd(&self.0).reregister(poll, token, interest, opts)
     }
 
     fn deregister(&self, poll: &mio::Poll) -> io::Result<()> {
-        EventedFd(&self.inner).deregister(poll)
+        EventedFd(&self.0).deregister(poll)
     }
 }

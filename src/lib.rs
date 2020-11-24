@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::{Serialize, Deserialize};
 
 fn is_false(x: &bool) -> bool {
