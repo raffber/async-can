@@ -9,6 +9,9 @@ use std::ffi::CString;
 use std::os::raw::{c_int, c_short};
 use crate::socketcan::sys::{SocketAddr, AF_CAN};
 use std::mem::size_of;
+use mio::event::Evented;
+use mio::unix::EventedFd;
+use mio::{Ready, PollOpt, Poll, Token};
 
 pub struct CanSocket {
     inner: RawFd,
@@ -59,5 +62,19 @@ impl CanSocket {
 impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.inner
+    }
+}
+
+impl Evented for CanSocket {
+    fn register(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> io::Result<()> {
+        EventedFd(&self.inner).register(poll, token, interest, opts)
+    }
+
+    fn reregister(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> io::Result<()> {
+        EventedFd(&self.inner).reregister(poll, token, interest, opts)
+    }
+
+    fn deregister(&self, poll: &Poll) -> io::Result<()> {
+        EventedFd(&self.inner).deregister(poll)
     }
 }
