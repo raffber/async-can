@@ -1,6 +1,5 @@
 use crate::CanMessage;
 use std::io;
-use crate::socketcan::CanSocket;
 
 pub struct Listener {
 

@@ -10,3 +10,5 @@ edition = "2018"
 serde = {version = "1.0", features = ["derive"]}
 libc = "0.2.80"
 mio = "0.6"
+futures = "0.3"
+tokio = {version = "0.2.23", features = ["io-driver"]}
