@@ -1,3 +1,4 @@
+use std::os::raw::{c_int, c_short};
 
 const CAN_EFF_FLAG: u32 = 0x80000000;
 const CAN_RTR_FLAG: u32 = 0x40000000;
@@ -15,6 +16,8 @@ const CAN_MAX_DLEN: usize = 8;
 
 pub const CAN_RAW: usize = 1;
 
+pub const AF_CAN: c_int = 29;
+
 #[repr(C)]
 pub(crate) struct CanFrame {
     id: u32,
@@ -26,7 +29,7 @@ pub(crate) struct CanFrame {
 }
 
 
-enum CanFrameError {
+pub enum CanFrameError {
     IdTooLong,
     DataTooLong,
 }
@@ -34,10 +37,6 @@ enum CanFrameError {
 impl CanFrame {
     pub(crate) fn new_data(id: u32, ext_id: bool, data: &[u8]) -> Result<Self, CanFrameError> {
         let mut id = Self::validate_id(id, ext_id)?;
-
-        if err {
-            id |= CAN_ERR_FLAG;
-        }
 
         if data.len() > CAN_MAX_DLEN {
             return Err(CanFrameError::DataTooLong);
@@ -56,7 +55,7 @@ impl CanFrame {
         })
     }
 
-    pub(crate) fn new_rtr(id: u32, dlc: u8) -> Result<Self, CanFrameError> {
+    pub(crate) fn new_rtr(id: u32, ext_id: bool, dlc: u8) -> Result<Self, CanFrameError> {
         let mut id = Self::validate_id(id, ext_id)?;
         id |= CAN_RTR_FLAG;
         Ok(Self {
@@ -81,6 +80,14 @@ impl CanFrame {
                 return Err(CanFrameError::IdTooLong);
             }
         }
-        OK(id)
+        Ok(id)
     }
+}
+
+#[repr(C)]
+pub(crate) struct SocketAddr {
+    pub(crate) _af_can: c_short,
+    pub(crate) if_index: c_int, // address familiy,
+    pub(crate) rx_id: u32,
+    pub(crate) tx_id: u32,
 }

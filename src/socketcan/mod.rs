@@ -2,11 +2,13 @@ mod sys;
 
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::io;
-use crate::can::CanMessage;
 use crate::CanMessage;
 use libc;
+use libc::sockaddr;
 use std::ffi::CString;
-use std::os::raw::c_int;
+use std::os::raw::{c_int, c_short};
+use crate::socketcan::sys::{SocketAddr, AF_CAN};
+use std::mem::size_of;
 
 pub struct CanSocket {
     inner: RawFd,
@@ -28,13 +30,21 @@ impl CanSocket {
             return Err(io::Error::last_os_error());
         }
 
-
+        let addr = SocketAddr {
+            _af_can: AF_CAN as c_short,
+            if_index: ifindex as c_int,
+            rx_id: 0,
+            tx_id: 0
+        };
         let ok = unsafe {
-            // libc::bind(fd, )
-
+            libc::bind(fd, &addr as *const SocketAddr as *const sockaddr, size_of::<SocketAddr>() as u32)
+        };
+        if ok != 0 {
+            return Err(io::Error::last_os_error());
         }
-
-        todo!()
+        Ok(Self {
+            inner: fd
+        })
     }
 
     async fn recv(&self) -> io::Result<CanMessage> {
