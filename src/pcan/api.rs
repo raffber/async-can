@@ -1,11 +1,12 @@
 #![allow(non_snake_case)]
 
-use std::io::Write;
+use std::{ffi::CStr, io::Write, mem::MaybeUninit};
 
 use dlopen::wrapper::{Container, WrapperApi};
 use tempfile::NamedTempFile;
 use std::os::raw::c_char;
 use lazy_static;
+use std::sync::Mutex;
 
 const PCAN_LIB: &'static [u8] = include_bytes!("../../lib/PCANBasic.dll");
 
@@ -19,10 +20,19 @@ type Mode = u8;
 type Baudrate = u16;
 
 #[repr(C)]
-struct Message {}
+struct Message {
+    id: u32,
+    tp: u8,
+    len: u8, 
+    data: [u8; 8],
+}
 
 #[repr(C)]
-struct Timestamp {}
+struct Timestamp {
+    millis: u32,
+    millis_overflow: u16,
+    micros: u16,
+}
 
 #[derive(Clone, WrapperApi)]
 struct Api {
@@ -39,9 +49,40 @@ lazy_static! {
     static ref PCAN: PCan = PCan::new();
 }
 
+
+struct Error {
+    code: u32,
+}
+
+impl Error {
+    fn new(status: u32) -> Error {
+        if status == 0 {
+            panic!("Not an error");
+        }
+        Error {
+            code: status,
+        }
+    }
+
+    fn description(&self) -> String {
+        PCan::describe_status(self.code)
+    }
+
+    fn result(status: u32) -> Result<()> {
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(Error::new(status))
+        }
+    }
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
 struct PCan {
     api: Container<Api>,
 }
+
 
 impl PCan {
     fn new() -> Self {
@@ -51,7 +92,68 @@ impl PCan {
         let name = path.to_str().unwrap();
         let api: Container<Api> = unsafe { Container::load(name) }.expect("Could not load PCan: Is the driver installed?");
         PCan {
-            api
+            api,
         }
+    } 
+
+    fn describe_status(status: u32) -> String {
+        unsafe {
+            let mut data: [c_char; 512] = MaybeUninit::uninit().assume_init();
+            PCAN.api.CAN_GetErrorText(status, 0x00, data.as_mut_ptr());
+            let ret = CStr::from_ptr(data.as_ptr());
+            ret.to_str().unwrap().to_string()
+        }
+    }
+
+    fn initalize(channel: Handle, baud: Baudrate, hw_type: HwType, port: u32, interrupt: u16) -> Result<()> {
+        let status = unsafe {
+            PCAN.api.CAN_Initialize(channel, baud, hw_type, port, interrupt) 
+        }; 
+        Error::result(status)
+    }
+
+    fn uninitialize(channel: Handle) -> Result<()> {
+        let status = unsafe {
+            PCAN.api.CAN_Uninitialize(channel) 
+        }; 
+        Error::result(status) 
+    }
+
+    fn reset(channel: Handle) -> Result<()> {
+        let status = unsafe {
+            PCAN.api.CAN_Reset(channel) 
+        }; 
+        Error::result(status) 
+    }
+
+    fn get_status(channel: Handle) -> Option<Error> {
+        let status = unsafe {
+            PCAN.api.CAN_GetStatus(channel) 
+        }; 
+        if status == 0 {
+            None
+        } else {
+            Some(Error::new(status))
+        }
+    }
+
+    fn read(channel: Handle) -> Result<(Message, Timestamp)> {
+        unsafe {
+            let mut msg = MaybeUninit::<Message>::uninit();
+            let mut timestamp = MaybeUninit::<Timestamp>::uninit();
+            let status = PCAN.api.CAN_Read(channel, msg.as_mut_ptr(), timestamp.as_mut_ptr());
+            if status == 0 {
+                Ok((msg.assume_init(), timestamp.assume_init()))
+            } else {
+                Err(Error::new(status))
+            }
+        }
+    }
+
+    fn write(channel: Handle, msg: Message) -> Result<()> {
+        let status = unsafe {
+            PCAN.api.CAN_Write(channel, &msg as *const Message) 
+        };
+        Error::result(status)
     }
 }
