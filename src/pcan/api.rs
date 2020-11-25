@@ -6,32 +6,31 @@ use dlopen::wrapper::{Container, WrapperApi};
 use tempfile::NamedTempFile;
 use std::os::raw::c_char;
 use lazy_static;
-use std::sync::Mutex;
 
 const PCAN_LIB: &'static [u8] = include_bytes!("../../lib/PCANBasic.dll");
 
-type Handle = u16;
-type Status = u32;
-type Parameter = u8;
-type Device = u8;
-type MessageType = u8;
-type HwType = u8;
-type Mode = u8;
-type Baudrate = u16;
+pub type Handle = u16;
+pub type Status = u32;
+pub type Parameter = u8;
+pub type Device = u8;
+pub type MessageType = u8;
+pub type HwType = u8;
+pub type Mode = u8;
+pub type Baudrate = u16;
 
 #[repr(C)]
-struct Message {
-    id: u32,
-    tp: u8,
-    len: u8, 
-    data: [u8; 8],
+pub struct Message {
+    pub id: u32,
+    pub tp: u8,
+    pub len: u8, 
+    pub data: [u8; 8],
 }
 
 #[repr(C)]
-struct Timestamp {
-    millis: u32,
-    millis_overflow: u16,
-    micros: u16,
+pub struct Timestamp {
+    pub millis: u32,
+    pub millis_overflow: u16,
+    pub micros: u16,
 }
 
 #[derive(Clone, WrapperApi)]
@@ -50,12 +49,12 @@ lazy_static! {
 }
 
 
-struct Error {
-    code: u32,
+pub struct Error {
+    pub code: u32,
 }
 
 impl Error {
-    fn new(status: u32) -> Error {
+    pub fn new(status: u32) -> Error {
         if status == 0 {
             panic!("Not an error");
         }
@@ -64,11 +63,11 @@ impl Error {
         }
     }
 
-    fn description(&self) -> String {
+    pub fn description(&self) -> String {
         PCan::describe_status(self.code)
     }
 
-    fn result(status: u32) -> Result<()> {
+    pub fn result(status: u32) -> Result<()> {
         if status == 0 {
             Ok(())
         } else {
@@ -77,15 +76,15 @@ impl Error {
     }
 }
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
-struct PCan {
+pub struct PCan {
     api: Container<Api>,
 }
 
 
 impl PCan {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let mut tmpfile = NamedTempFile::new().unwrap();
         tmpfile.write_all(PCAN_LIB).unwrap();
         let (_, path) = tmpfile.keep().unwrap();
@@ -96,7 +95,7 @@ impl PCan {
         }
     } 
 
-    fn describe_status(status: u32) -> String {
+    pub fn describe_status(status: u32) -> String {
         unsafe {
             let mut data: [c_char; 512] = MaybeUninit::uninit().assume_init();
             PCAN.api.CAN_GetErrorText(status, 0x00, data.as_mut_ptr());
@@ -105,28 +104,28 @@ impl PCan {
         }
     }
 
-    fn initalize(channel: Handle, baud: Baudrate, hw_type: HwType, port: u32, interrupt: u16) -> Result<()> {
+    pub fn initalize(channel: Handle, baud: Baudrate, hw_type: HwType, port: u32, interrupt: u16) -> Result<()> {
         let status = unsafe {
             PCAN.api.CAN_Initialize(channel, baud, hw_type, port, interrupt) 
         }; 
         Error::result(status)
     }
 
-    fn uninitialize(channel: Handle) -> Result<()> {
+    pub fn uninitialize(channel: Handle) -> Result<()> {
         let status = unsafe {
             PCAN.api.CAN_Uninitialize(channel) 
         }; 
         Error::result(status) 
     }
 
-    fn reset(channel: Handle) -> Result<()> {
+    pub fn reset(channel: Handle) -> Result<()> {
         let status = unsafe {
             PCAN.api.CAN_Reset(channel) 
         }; 
         Error::result(status) 
     }
 
-    fn get_status(channel: Handle) -> Option<Error> {
+    pub fn get_status(channel: Handle) -> Option<Error> {
         let status = unsafe {
             PCAN.api.CAN_GetStatus(channel) 
         }; 
@@ -137,7 +136,7 @@ impl PCan {
         }
     }
 
-    fn read(channel: Handle) -> Result<(Message, Timestamp)> {
+    pub fn read(channel: Handle) -> Result<(Message, Timestamp)> {
         unsafe {
             let mut msg = MaybeUninit::<Message>::uninit();
             let mut timestamp = MaybeUninit::<Timestamp>::uninit();
@@ -150,7 +149,7 @@ impl PCan {
         }
     }
 
-    fn write(channel: Handle, msg: Message) -> Result<()> {
+    pub fn write(channel: Handle, msg: Message) -> Result<()> {
         let status = unsafe {
             PCAN.api.CAN_Write(channel, &msg as *const Message) 
         };
