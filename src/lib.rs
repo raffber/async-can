@@ -13,15 +13,10 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::sync::Arc;
 
-fn is_false(x: &bool) -> bool {
-    !(*x)
-}
-
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DataFrame {
     id: u32,
-    #[serde(skip_serializing_if = "is_false", default)]
     ext_id: bool,
     data: Vec<u8>,
 }
@@ -30,7 +25,6 @@ pub struct DataFrame {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RemoteFrame {
     id: u32,
-    #[serde(skip_serializing_if = "is_false", default)]
     ext_id: bool,
     dlc: u8,
 }
@@ -85,8 +79,15 @@ mod windows;
 #[cfg(target_os = "windows")]
 mod pcan;
 
+#[cfg(target_os = "windows")]
+pub use windows::Bus;
+
 #[cfg(target_os = "linux")]
 mod linux;
 
 #[cfg(target_os = "linux")]
 mod socketcan;
+
+#[cfg(target_os = "linux")]
+pub use linux::Bus;
+

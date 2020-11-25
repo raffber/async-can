@@ -1,16 +1,18 @@
 use crate::{Message, Timestamp};
 use crate::Result;
 use crate::socketcan::CanSocket;
+use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct Bus {
-    socket: CanSocket,
+    socket: Arc<CanSocket>,
 }
 
 impl Bus {
     fn connect(ifname: String) -> Result<Self> {
         let socket = CanSocket::bind(ifname)?;
         Ok(Bus {
-            socket
+            socket: Arc::new(socket)
         })
     }
 

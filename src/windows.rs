@@ -1,22 +1,29 @@
-use crate::CanMessage;
-use std::io;
+use crate::{Message, Timestamp};
+use crate::Result;
+use crate::socketcan::CanSocket;
 
-pub struct Listener {
-
+#[derive(Clone)]
+pub struct Bus {
+    socket: PCanDevice,
 }
 
-impl Listener {
-    pub async fn recv(&self) -> io::Result<CanMessage> {
-        todo!()
+impl Bus {
+    fn connect(ifname: &str) -> Result<Self> {
+        let socket = CanSocket::bind(ifname)?;
+        Ok(Bus {
+            socket
+        })
     }
-}
 
-pub struct Sender {
+    async fn send(&self, msg: Message) -> Result<()> {
+        Ok(self.socket.send(msg).await?)
+    }
 
-}
+    async fn recv(&self) -> Result<Message> {
+        Ok(self.socket.recv().await?)
+    }
 
-impl Sender {
-    pub async fn send(&self, msg: &CanMessage) -> io::Result<()> {
-        todo!()
+    async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
+        Ok(self.socket.recv_with_timestamp().await?)
     }
 }

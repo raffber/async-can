@@ -1,25 +1,28 @@
 mod api;
 mod sys;
 use std::thread;
-use tokio::sync::mpsc;
-use std::sync::mpsc;
+use crate::{Result, Error};
+use crate::{Message, Timestamp};
 
+struct PCanDevice {
 
-struct PCanWriter {
-    channel: api::Handle, 
 }
 
-impl PCanWriter {
-    pub fn start(channel: api::Handle) -> mpsc::UnboundedSender<CanMessage> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let writer = PCanWriter {
-            channel 
-        }; 
-        thread::spawn(|| writer.run());
-        tx
+impl PCanDevice {
+    fn connect(ifname: String) -> Result<Self> {
+        todo!()
     }
 
-    pub fn run(self)  {
+    async fn send(&self, msg: Message) -> Result<()> {
+        todo!()
+    }
 
+    async fn recv(&self) -> Result<Message> {
+        todo!()
+    }
+
+    async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
+        todo!()
     }
 }
+
