@@ -7,7 +7,11 @@ extern crate dlopen_derive;
 #[cfg(target_os = "windows")]
 extern crate lazy_static;
 
+use thiserror::Error;
+
 use serde::{Deserialize, Serialize};
+use std::io;
+use std::sync::Arc;
 
 fn is_false(x: &bool) -> bool {
     !(*x)
@@ -53,6 +57,22 @@ impl Message {
         }
     }
 }
+
+#[derive(Error, Debug, Clone)]
+pub enum Error {
+    #[error("Io Error: {0}")]
+    Io(Arc<io::Error>),
+
+}
+
+impl From<io::Error> for Error {
+    fn from(x: io::Error) -> Self {
+        Error::Io(Arc::new(x))
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
 
 #[cfg(target_os = "windows")]
 mod windows;
