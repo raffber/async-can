@@ -5,6 +5,9 @@ use crate::{Result, Error};
 use crate::{Message, Timestamp};
 use api::Handle;
 use api::PCan;
+use std::sync::mpsc;
+use std::time::Duration;
+use tokio::sync::oneshot;
 
 const IOPORT: u32 = 0x02A0;
 const INTERRUPT: u16 = 11;
@@ -43,6 +46,11 @@ fn get_baud(bitrate: u32) -> Result<u16> {
     Ok(ret as u16)
 }
 
+struct SendReq {
+    tx: oneshot::Sender<Result<()>>,
+    msg: Message,
+}
+
 impl PCanDevice {
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let ifname = ifname.to_lowercase();
@@ -59,6 +67,13 @@ impl PCanDevice {
         if let Err(err) = PCan::initalize(handle, baud as u16, sys::PCAN_TYPE_ISA as u8, IOPORT, INTERRUPT) {
             return Err(Error::PCanInitFailed(err.code, err.description())); 
         }
+        let (send_tx, send_rx) = mpsc::channel::<SendReq>();
+        thread::spawn(move || {
+            if let Ok(req) = send_rx.recv() { 
+                let err = PCan::write(handle, req.msg); 
+                let _ = req.tx.send(err); 
+            } 
+        });
         Ok(Self {})
     }
 

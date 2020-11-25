@@ -6,6 +6,8 @@ use dlopen::wrapper::{Container, WrapperApi};
 use tempfile::NamedTempFile;
 use std::os::raw::c_char;
 use lazy_static;
+use crate::Message;
+use super::sys;
 
 const PCAN_LIB: &'static [u8] = include_bytes!("../../lib/PCANBasic.dll");
 
@@ -19,7 +21,7 @@ pub type Mode = u8;
 pub type Baudrate = u16;
 
 #[repr(C)]
-pub struct Message {
+pub struct PCanMessage {
     pub id: u32,
     pub tp: u8,
     pub len: u8, 
@@ -39,8 +41,8 @@ struct Api {
     CAN_Uninitialize: unsafe extern "C" fn(channel: Handle) -> Status,
     CAN_Reset: unsafe extern "C" fn(channel: Handle) -> Status,
     CAN_GetStatus: unsafe extern "C" fn(channel: Handle) -> Status,
-    CAN_Read: unsafe extern "C" fn(channel: Handle, msg: *mut Message, timestamp: *mut Timestamp) -> Status,
-    CAN_Write: unsafe extern "C" fn(channel: Handle, msg: *const Message) -> Status,
+    CAN_Read: unsafe extern "C" fn(channel: Handle, msg: *mut PCanMessage, timestamp: *mut Timestamp) -> Status,
+    CAN_Write: unsafe extern "C" fn(channel: Handle, msg: *const PCanMessage) -> Status,
     CAN_GetErrorText: unsafe extern "C" fn(error: Status, lang: u16, buf: *const c_char)
 }
 
@@ -136,9 +138,9 @@ impl PCan {
         }
     }
 
-    pub fn read(channel: Handle) -> Result<(Message, Timestamp)> {
+    pub fn read(channel: Handle) -> Result<(PCanMessage, Timestamp)> {
         unsafe {
-            let mut msg = MaybeUninit::<Message>::uninit();
+            let mut msg = MaybeUninit::<PCanMessage>::uninit();
             let mut timestamp = MaybeUninit::<Timestamp>::uninit();
             let status = PCAN.api.CAN_Read(channel, msg.as_mut_ptr(), timestamp.as_mut_ptr());
             if status == 0 {
@@ -149,10 +151,47 @@ impl PCan {
         }
     }
 
-    pub fn write(channel: Handle, msg: Message) -> Result<()> {
+    pub fn write(channel: Handle, msg: PCanMessage) -> Result<()> {
         let status = unsafe {
-            PCAN.api.CAN_Write(channel, &msg as *const Message) 
+            PCAN.api.CAN_Write(channel, &msg as *const PCanMessage) 
         };
         Error::result(status)
+    }
+}
+
+impl From<Message> for PCanMessage {
+    fn from(msg: Message) -> Self {
+        match msg {
+            Message::Data(frame) => {
+                let data = [0_u8, 8];
+                data.copy_from_slice(&frame.data);
+                let tp = 0_u8;
+                let tp = if frame.ext_id {
+                    sys::PCAN_MESSAGE_EXTENDED
+                } else {
+                    sys::PCAN_MESSAGE_STANDARD 
+                }; 
+                PCanMessage {
+                    id: frame.id,
+                    tp: tp as u8,
+                    len: frame.data.len() as u8,
+                    data, 
+                }
+            },
+            Message::Remote(frame) => {
+                let mut tp = if frame.ext_id {
+                    sys::PCAN_MESSAGE_EXTENDED
+                } else {
+                    sys::PCAN_MESSAGE_STANDARD 
+                }; 
+                tp |= sys::PCAN_MESSAGE_RTR; 
+                PCanMessage {
+                    id: frame.id,
+                    tp: tp as u8,
+                    len: frame.dlc,
+                    data: [0_u8, 8], 
+                }
+            } 
+        }
     }
 }
