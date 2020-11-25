@@ -57,16 +57,16 @@ impl Message {
     }
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug)]
 pub enum Error {
     #[error("Io Error: {0}")]
-    Io(Arc<io::Error>),
+    Io(io::Error),
 
 }
 
 impl From<io::Error> for Error {
     fn from(x: io::Error) -> Self {
-        Error::Io(Arc::new(x))
+        Error::Io(x)
     }
 }
 
