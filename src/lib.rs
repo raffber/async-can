@@ -60,7 +60,12 @@ impl Message {
 pub enum Error {
     #[error("Io Error: {0}")]
     Io(io::Error),
-
+    #[error("Invalid interface address")]
+    InvalidInterfaceAddress,
+    #[error("Invalid bitrate")]
+    InvalidBitRate, 
+    #[error("PCAN Init Failed with code {0}: `{1}`")]
+    PCanInitFailed(u32, String),
 }
 
 impl From<io::Error> for Error {

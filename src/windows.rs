@@ -1,6 +1,6 @@
 use crate::{Message, Timestamp};
 use crate::Result;
-use crate::socketcan::CanSocket;
+use crate::pcan::PCanDevice;
 
 #[derive(Clone)]
 pub struct Bus {
@@ -8,8 +8,8 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub fn connect(ifname: &str) -> Result<Self> {
-        let socket = CanSocket::bind(ifname)?;
+    pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
+        let socket = PCanDevice::connect(ifname, bitrate)?;
         Ok(Bus {
             socket
         })
