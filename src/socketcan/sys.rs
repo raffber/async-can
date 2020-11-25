@@ -1,6 +1,7 @@
 use std::os::raw::{c_int, c_short};
 
-use crate::CanMessage;
+use crate::{Message, RemoteFrame, DataFrame};
+use crate::Message::Remote;
 
 const CAN_EFF_FLAG: u32 = 0x80000000;
 const CAN_RTR_FLAG: u32 = 0x40000000;
@@ -95,46 +96,65 @@ pub(crate) struct CanSocketAddr {
     pub(crate) tx_id: u32,
 }
 
-impl From<CanMessage> for CanFrame {
-    fn from(msg: CanMessage) -> Self {
-        let mut id = msg.id;
-        if msg.ext_id {
+impl From<Message> for CanFrame {
+    fn from(msg: Message) -> Self {
+        let mut id = msg.id();
+        if msg.ext_id() {
             id |= CAN_EFF_FLAG;
         }
-        if msg.rtr {
-            id |= CAN_RTR_FLAG;
+        match msg {
+            Message::Data(msg) => {
+                if msg.data.len() > CAN_MAX_DLEN {
+                    panic!("CanFrame: Too much data");
+                }
+                let mut can_data = [0_u8; CAN_MAX_DLEN];
+                can_data[0..msg.data.len()].copy_from_slice(&msg.data);
+                CanFrame {
+                    id,
+                    dlc: msg.data.len() as u8,
+                    pad: 0,
+                    res0: 0,
+                    res1: 0,
+                    data: can_data,
+                }
+            },
+            Remote(msg) => {
+                id |= CAN_RTR_FLAG;
+                CanFrame {
+                    id,
+                    dlc: msg.dlc,
+                    pad: 0,
+                    res0: 0,
+                    res1: 0,
+                    data: [0_u8; CAN_MAX_DLEN],
+                }
+            },
         }
-        if msg.data.len() > CAN_MAX_DLEN {
-            panic!("CanFrame: Too much data");
-        }
-        let mut can_data = [0_u8; CAN_MAX_DLEN];
-        can_data[0..msg.data.len()].copy_from_slice(&msg.data);
 
-        CanFrame {
-            id,
-            dlc: msg.data.len() as u8,
-            pad: 0,
-            res0: 0,
-            res1: 0,
-            data: can_data,
-        }
     }
 }
 
-impl Into<CanMessage> for CanFrame {
-    fn into(self) -> CanMessage {
+impl Into<Message> for CanFrame {
+    fn into(self) -> Message {
         let (id, ext_id) = if self.id & CAN_EFF_FLAG > 0 {
             (self.id & CAN_EFF_MASK, true)
         } else {
             (self.id & CAN_SFF_MASK, false)
         };
         let rtr = self.id & CAN_RTR_FLAG > 0;
-        let data = self.data[0..(self.dlc as usize)].to_vec();
-        CanMessage {
-            id,
-            ext_id,
-            rtr,
-            data,
+        if rtr {
+            Message::Remote(RemoteFrame {
+                id,
+                ext_id,
+                dlc: self.dlc,
+            })
+        } else {
+            let data = self.data[0..(self.dlc as usize)].to_vec();
+            Message::Data(DataFrame {
+                id,
+                ext_id,
+                data
+            })
         }
     }
 }

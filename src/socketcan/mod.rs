@@ -14,7 +14,7 @@ use mio::event::Evented;
 use mio::unix::{EventedFd, UnixReady};
 use tokio::io::{ErrorKind, PollEvented};
 
-use crate::CanMessage;
+use crate::Message;
 use crate::socketcan::sys::{AF_CAN, CanFrame, CanSocketAddr};
 
 mod sys;
@@ -82,7 +82,7 @@ impl CanSocket {
         })
     }
 
-    fn read_from_fd(&self) -> io::Result<CanMessage> {
+    fn read_from_fd(&self) -> io::Result<Message> {
         let mut frame = MaybeUninit::<CanFrame>::uninit();
         let (frame, size) = unsafe {
             let size = libc::read(self.as_raw_fd(), frame.as_mut_ptr() as *mut c_void, size_of::<CanFrame>());
@@ -94,7 +94,7 @@ impl CanSocket {
         Ok(frame.into())
     }
 
-    pub async fn recv(&self) -> io::Result<CanMessage> {
+    pub async fn recv(&self) -> io::Result<Message> {
         let ready = Ready::readable() | Ready::from(UnixReady::error());
         poll_fn(|cx| {
             ready!(self.inner.poll_read_ready(cx, ready))?;
@@ -112,7 +112,7 @@ impl CanSocket {
         }).await
     }
 
-    pub async fn send(&self, msg: CanMessage) -> io::Result<()> {
+    pub async fn send(&self, msg: Message) -> io::Result<()> {
         let frame: CanFrame = msg.into();
         poll_fn(|cx| {
             ready!(self.inner.poll_write_ready(cx))?;
