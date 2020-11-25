@@ -1,4 +1,4 @@
-use crate::Message;
+use crate::{Message, Timestamp};
 use crate::Result;
 use crate::socketcan::CanSocket;
 
@@ -20,6 +20,10 @@ impl Bus {
 
     async fn recv(&self) -> Result<Message> {
         Ok(self.socket.recv().await?)
+    }
+
+    async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
+        Ok(self.socket.recv_with_timestamp().await?)
     }
 }
 

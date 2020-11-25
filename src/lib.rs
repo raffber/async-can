@@ -42,6 +42,11 @@ pub enum Message {
     Remote(RemoteFrame),
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Timestamp {
+    micros: u64
+}
+
 impl Message {
     pub fn id(&self) -> u32 {
         match self {
