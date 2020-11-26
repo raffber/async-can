@@ -1,6 +1,6 @@
 use std::ffi::{c_void, CString};
 use std::io;
-use std::mem::{size_of, MaybeUninit};
+use std::mem::{MaybeUninit, size_of};
 use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::task::Poll;
@@ -9,13 +9,13 @@ use futures::future::poll_fn;
 use futures::ready;
 use libc;
 use libc::sockaddr;
+use mio::{PollOpt, Ready, Token};
 use mio::event::Evented;
 use mio::unix::{EventedFd, UnixReady};
-use mio::{PollOpt, Ready, Token};
 use tokio::io::{ErrorKind, PollEvented};
 
-use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::{Message, Timestamp};
+use crate::socketcan::sys::{AF_CAN, CanFrame, CanSocketAddr};
 
 mod sys;
 
@@ -108,17 +108,16 @@ impl CanSocket {
                 }
                 Ok(ret) => Poll::Ready(Ok(ret)),
             }
-        })
-        .await
+        }).await
     }
 
     pub async fn recv_with_timestamp(&self) -> io::Result<(Message, Timestamp)> {
         todo!()
     }
 
-    pub async fn send(&self, msg: Message) -> io::Result<()> {
-        let frame: CanFrame = msg.into();
-        poll_fn(|cx| {
+    pub async fn send(&self, msg: Message) -> crate::Result<()> {
+        let frame: CanFrame = CanFrame::from_message(msg)?;
+        let ret = poll_fn(|cx| {
             ready!(self.inner.poll_write_ready(cx))?;
             let frame = &frame as *const CanFrame as *const c_void;
             let written = unsafe { libc::write(self.as_raw_fd(), frame, size_of::<CanFrame>()) };
@@ -136,8 +135,8 @@ impl CanSocket {
                 // successfully sent
                 Poll::Ready(Ok(()))
             }
-        })
-        .await
+        }).await;
+        Ok(ret?)
     }
 }
 

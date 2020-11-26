@@ -36,6 +36,15 @@ pub enum CanFrameError {
     DataTooLong,
 }
 
+impl From<CanFrameError> for crate::Error {
+    fn from(x: CanFrameError) -> Self {
+        match x {
+            CanFrameError::IdTooLong => crate::Error::IdTooLong,
+            CanFrameError::DataTooLong => crate::Error::DataTooLong
+        }
+    }
+}
+
 impl CanFrame {
     pub(crate) fn new_data(id: u32, ext_id: bool, data: &[u8]) -> Result<Self, CanFrameError> {
         let id = Self::validate_id(id, ext_id)?;
@@ -70,6 +79,43 @@ impl CanFrame {
         })
     }
 
+    pub(crate) fn from_message(msg: Message) -> Result<Self, CanFrameError> {
+        Self::validate_id(msg.id(), msg.ext_id())?;
+        let mut id = msg.id();
+        if msg.ext_id() {
+            id |= CAN_EFF_FLAG;
+        }
+        match msg {
+            Message::Data(msg) => {
+                if msg.data.len() > CAN_MAX_DLEN {
+                    return Err(CanFrameError::DataTooLong);
+                }
+                let mut can_data = [0_u8; CAN_MAX_DLEN];
+                can_data[0..msg.data.len()].copy_from_slice(&msg.data);
+                Ok(CanFrame {
+                    id,
+                    dlc: msg.data.len() as u8,
+                    pad: 0,
+                    res0: 0,
+                    res1: 0,
+                    data: can_data,
+                })
+            }
+            Remote(msg) => {
+                id |= CAN_RTR_FLAG;
+                Ok(CanFrame {
+                    id,
+                    dlc: msg.dlc,
+                    pad: 0,
+                    res0: 0,
+                    res1: 0,
+                    data: [0_u8; CAN_MAX_DLEN],
+                })
+            }
+        }
+
+    }
+
     fn validate_id(id: u32, ext_id: bool) -> Result<u32, CanFrameError> {
         let mut id = id;
         if ext_id {
@@ -93,43 +139,6 @@ pub(crate) struct CanSocketAddr {
     // address familiy,
     pub(crate) rx_id: u32,
     pub(crate) tx_id: u32,
-}
-
-impl From<Message> for CanFrame {
-    fn from(msg: Message) -> Self {
-        let mut id = msg.id();
-        if msg.ext_id() {
-            id |= CAN_EFF_FLAG;
-        }
-        match msg {
-            Message::Data(msg) => {
-                if msg.data.len() > CAN_MAX_DLEN {
-                    panic!("CanFrame: Too much data");
-                }
-                let mut can_data = [0_u8; CAN_MAX_DLEN];
-                can_data[0..msg.data.len()].copy_from_slice(&msg.data);
-                CanFrame {
-                    id,
-                    dlc: msg.data.len() as u8,
-                    pad: 0,
-                    res0: 0,
-                    res1: 0,
-                    data: can_data,
-                }
-            }
-            Remote(msg) => {
-                id |= CAN_RTR_FLAG;
-                CanFrame {
-                    id,
-                    dlc: msg.dlc,
-                    pad: 0,
-                    res0: 0,
-                    res1: 0,
-                    data: [0_u8; CAN_MAX_DLEN],
-                }
-            }
-        }
-    }
 }
 
 impl Into<Message> for CanFrame {

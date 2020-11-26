@@ -7,14 +7,19 @@ extern crate dlopen_derive;
 #[cfg(target_os = "windows")]
 extern crate lazy_static;
 
+use std::io;
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+#[cfg(target_os = "linux")]
+pub use linux::Bus;
+#[cfg(target_os = "windows")]
+pub use windows::Bus;
+
 const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
 const CAN_STD_ID_MASK: u32 = 0x7FF;
 const CAN_MAX_DLC: usize = 8;
-
-use thiserror::Error;
-
-use serde::{Deserialize, Serialize};
-use std::io;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DataFrame {
@@ -132,6 +137,10 @@ pub enum Error {
     BusError(BusError),
     #[error("Transmit full")]
     TransmitQueueFull,
+    #[error("Id is too long")]
+    IdTooLong,
+    #[error("Data is too long")]
+    DataTooLong,
 }
 
 impl From<io::Error> for Error {
@@ -148,14 +157,9 @@ mod windows;
 #[cfg(target_os = "windows")]
 mod pcan;
 
-#[cfg(target_os = "windows")]
-pub use windows::Bus;
-
 #[cfg(target_os = "linux")]
 mod linux;
 
 #[cfg(target_os = "linux")]
 mod socketcan;
 
-#[cfg(target_os = "linux")]
-pub use linux::Bus;
