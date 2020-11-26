@@ -89,7 +89,8 @@ impl Error {
             & !(sys::PCAN_ERROR_ANYBUSERR
                 | sys::PCAN_ERROR_XMTFULL
                 | sys::PCAN_ERROR_XMTFULL
-                | sys::PCAN_ERROR_OVERRUN)
+                | sys::PCAN_ERROR_OVERRUN
+                | sys::PCAN_ERROR_QRCVEMPTY)
     }
 
     pub fn rx_overflow(&self) -> bool {
@@ -150,6 +151,12 @@ impl PCan {
             PCAN.api
                 .CAN_Initialize(channel, baud, hw_type, port, interrupt)
         };
+        if status == sys::PCAN_ERROR_INITIALIZE {
+            // already initialized, maybe...
+            // TODO: how to tell exactly if this is an error?
+            return Ok(());
+        }
+        println!("CAN_Initalize: {}", status);
         Error::result(status)?;
         let status = unsafe {
             let on = sys::PCAN_PARAMETER_ON as i32;
@@ -160,6 +167,7 @@ impl PCan {
                 size_of::<i32>() as u32,
             )
         };
+        println!("CAN_SetValue: {}", status);
         Error::result(status)
     }
 
@@ -202,12 +210,14 @@ impl PCan {
     }
 }
 
+// TODO: this is going to panic if Message was deserialized
+// from an incorrect value
 impl From<Message> for PCanMessage {
     fn from(msg: Message) -> Self {
         match msg {
             Message::Data(frame) => {
                 let mut data = [0_u8; 8];
-                data.copy_from_slice(&frame.data);
+                data[0 .. frame.data.len()].copy_from_slice(&frame.data);
                 let tp = if frame.ext_id {
                     sys::PCAN_MESSAGE_EXTENDED
                 } else {

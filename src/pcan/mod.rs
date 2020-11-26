@@ -61,7 +61,6 @@ impl PCanDevice {
         ) {
             return Err(Error::PCanInitFailed(err.code, err.description()));
         }
-        // TODO: set PCAN_BUSOFF_AUTORESET PCAN_PARAMETER_ON
         Ok(Self { handle })
     }
 
@@ -99,6 +98,11 @@ impl PCanDevice {
         let (msg, stamp) = task::spawn_blocking(move || {
             loop {
                 let (err, data) = PCan::read(handle);
+                if let Some(err) = err.as_ref() {
+                    if err.rx_empty() {
+                        continue
+                    }
+                }
                 let ret = if let Some((msg, stamp)) = data {
                     Ok((msg, stamp))
                 } else if let Some(err) = err {
