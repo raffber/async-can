@@ -1,6 +1,6 @@
 use std::ffi::{c_void, CString};
 use std::io;
-use std::mem::{MaybeUninit, size_of};
+use std::mem::{size_of, MaybeUninit};
 use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::task::Poll;
@@ -9,13 +9,13 @@ use futures::future::poll_fn;
 use futures::ready;
 use libc;
 use libc::sockaddr;
-use mio::{PollOpt, Ready, Token};
 use mio::event::Evented;
 use mio::unix::{EventedFd, UnixReady};
+use mio::{PollOpt, Ready, Token};
 use tokio::io::{ErrorKind, PollEvented};
 
+use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::{Message, Timestamp};
-use crate::socketcan::sys::{AF_CAN, CanFrame, CanSocketAddr};
 
 mod sys;
 
@@ -31,7 +31,6 @@ pub struct CanSocket {
     inner: PollEvented<EventedSocket>,
 }
 
-
 impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.inner.get_ref().as_raw_fd()
@@ -41,15 +40,11 @@ impl AsRawFd for CanSocket {
 impl CanSocket {
     pub fn bind<T: AsRef<str>>(ifname: T) -> io::Result<Self> {
         let name = CString::new(ifname.as_ref()).unwrap();
-        let ifindex = unsafe {
-            libc::if_nametoindex(name.as_ptr())
-        };
+        let ifindex = unsafe { libc::if_nametoindex(name.as_ptr()) };
         if ifindex == 0 {
             return Err(io::Error::last_os_error());
         }
-        let fd = unsafe {
-            libc::socket(libc::PF_CAN, libc::SOCK_RAW, sys::CAN_RAW as c_int)
-        };
+        let fd = unsafe { libc::socket(libc::PF_CAN, libc::SOCK_RAW, sys::CAN_RAW as c_int) };
         if fd == -1 {
             return Err(io::Error::last_os_error());
         }
@@ -61,7 +56,11 @@ impl CanSocket {
             tx_id: 0,
         };
         let ok = unsafe {
-            libc::bind(fd, &addr as *const CanSocketAddr as *const sockaddr, size_of::<CanSocketAddr>() as u32)
+            libc::bind(
+                fd,
+                &addr as *const CanSocketAddr as *const sockaddr,
+                size_of::<CanSocketAddr>() as u32,
+            )
         };
         if ok != 0 {
             return Err(io::Error::last_os_error());
@@ -69,23 +68,23 @@ impl CanSocket {
 
         // set non-blocking mode for asyncio
         let nonblocking = true;
-        let ok = unsafe {
-            libc::ioctl(fd, libc::FIONBIO, &(nonblocking as c_int))
-        };
+        let ok = unsafe { libc::ioctl(fd, libc::FIONBIO, &(nonblocking as c_int)) };
         if ok != 0 {
             return Err(io::Error::last_os_error());
         }
 
         let inner = PollEvented::new(EventedSocket(fd))?;
-        Ok(Self {
-            inner
-        })
+        Ok(Self { inner })
     }
 
     fn read_from_fd(&self) -> io::Result<Message> {
         let mut frame = MaybeUninit::<CanFrame>::uninit();
         let (frame, size) = unsafe {
-            let size = libc::read(self.as_raw_fd(), frame.as_mut_ptr() as *mut c_void, size_of::<CanFrame>());
+            let size = libc::read(
+                self.as_raw_fd(),
+                frame.as_mut_ptr() as *mut c_void,
+                size_of::<CanFrame>(),
+            );
             (frame.assume_init(), size as usize)
         };
         if size != size_of::<CanFrame>() {
@@ -109,7 +108,8 @@ impl CanSocket {
                 }
                 Ok(ret) => Poll::Ready(Ok(ret)),
             }
-        }).await
+        })
+        .await
     }
 
     pub async fn recv_with_timestamp(&self) -> io::Result<(Message, Timestamp)> {
@@ -121,9 +121,7 @@ impl CanSocket {
         poll_fn(|cx| {
             ready!(self.inner.poll_write_ready(cx))?;
             let frame = &frame as *const CanFrame as *const c_void;
-            let written = unsafe {
-                libc::write(self.as_raw_fd(), frame, size_of::<CanFrame>())
-            };
+            let written = unsafe { libc::write(self.as_raw_fd(), frame, size_of::<CanFrame>()) };
             if written as usize != size_of::<CanFrame>() {
                 let err = io::Error::last_os_error();
                 if err.kind() == ErrorKind::WouldBlock {
@@ -138,16 +136,29 @@ impl CanSocket {
                 // successfully sent
                 Poll::Ready(Ok(()))
             }
-        }).await
+        })
+        .await
     }
 }
 
 impl Evented for EventedSocket {
-    fn register(&self, poll: &mio::Poll, token: Token, interest: Ready, opts: PollOpt) -> io::Result<()> {
+    fn register(
+        &self,
+        poll: &mio::Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> io::Result<()> {
         EventedFd(&self.0).register(poll, token, interest, opts)
     }
 
-    fn reregister(&self, poll: &mio::Poll, token: Token, interest: Ready, opts: PollOpt) -> io::Result<()> {
+    fn reregister(
+        &self,
+        poll: &mio::Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> io::Result<()> {
         EventedFd(&self.0).reregister(poll, token, interest, opts)
     }
 

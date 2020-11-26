@@ -1,4 +1,4 @@
-#[cfg(target_os="windows")]
+#[cfg(target_os = "windows")]
 fn main() {
     use std::env;
     use std::path::PathBuf;
@@ -17,6 +17,5 @@ fn main() {
         .expect("Couldn't write bindings!");
 }
 
-#[cfg(target_os="linux")]
-fn main() {
-}
+#[cfg(target_os = "linux")]
+fn main() {}

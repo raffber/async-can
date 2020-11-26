@@ -1,7 +1,7 @@
 use std::os::raw::{c_int, c_short};
 
-use crate::{Message, RemoteFrame, DataFrame};
 use crate::Message::Remote;
+use crate::{DataFrame, Message, RemoteFrame};
 
 const CAN_EFF_FLAG: u32 = 0x80000000;
 const CAN_RTR_FLAG: u32 = 0x40000000;
@@ -30,7 +30,6 @@ pub(crate) struct CanFrame {
     res1: u8,
     data: [u8; CAN_MAX_DLEN],
 }
-
 
 pub enum CanFrameError {
     IdTooLong,
@@ -117,7 +116,7 @@ impl From<Message> for CanFrame {
                     res1: 0,
                     data: can_data,
                 }
-            },
+            }
             Remote(msg) => {
                 id |= CAN_RTR_FLAG;
                 CanFrame {
@@ -128,9 +127,8 @@ impl From<Message> for CanFrame {
                     res1: 0,
                     data: [0_u8; CAN_MAX_DLEN],
                 }
-            },
+            }
         }
-
     }
 }
 
@@ -150,11 +148,7 @@ impl Into<Message> for CanFrame {
             })
         } else {
             let data = self.data[0..(self.dlc as usize)].to_vec();
-            Message::Data(DataFrame {
-                id,
-                ext_id,
-                data
-            })
+            Message::Data(DataFrame { id, ext_id, data })
         }
     }
 }

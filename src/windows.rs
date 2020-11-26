@@ -1,6 +1,6 @@
-use crate::{Message, Timestamp};
-use crate::Result;
 use crate::pcan::PCanDevice;
+use crate::Result;
+use crate::{Message, Timestamp};
 
 #[derive(Clone)]
 pub struct Bus {
@@ -10,9 +10,7 @@ pub struct Bus {
 impl Bus {
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let socket = PCanDevice::connect(ifname, bitrate)?;
-        Ok(Bus {
-            socket
-        })
+        Ok(Bus { socket })
     }
 
     pub async fn send(&self, msg: Message) -> Result<()> {

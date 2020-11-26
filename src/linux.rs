@@ -1,6 +1,6 @@
-use crate::{Message, Timestamp};
-use crate::Result;
 use crate::socketcan::CanSocket;
+use crate::Result;
+use crate::{Message, Timestamp};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -12,7 +12,7 @@ impl Bus {
     pub fn connect(ifname: String) -> Result<Self> {
         let socket = CanSocket::bind(ifname)?;
         Ok(Bus {
-            socket: Arc::new(socket)
+            socket: Arc::new(socket),
         })
     }
 
@@ -28,4 +28,3 @@ impl Bus {
         Ok(self.socket.recv_with_timestamp().await?)
     }
 }
-

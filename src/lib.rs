@@ -12,7 +12,6 @@ use thiserror::Error;
 use serde::{Deserialize, Serialize};
 use std::io;
 
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DataFrame {
     id: u32,
@@ -20,14 +19,12 @@ pub struct DataFrame {
     data: Vec<u8>,
 }
 
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RemoteFrame {
     id: u32,
     ext_id: bool,
     dlc: u8,
 }
-
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum Message {
@@ -37,7 +34,7 @@ pub enum Message {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Timestamp {
-    micros: u64
+    pub micros: u64,
 }
 
 impl Message {
@@ -57,15 +54,35 @@ impl Message {
 }
 
 #[derive(Error, Debug)]
+pub enum BusError {
+    #[error("Bus-light warning")]
+    LightWarning,
+    #[error("Bus-heavy warning")]
+    HeavyWarning,
+    #[error("Bus in passive mode")]
+    Passive,
+    #[error("Bus is in bus-off mode")]
+    Off,
+}
+
+#[derive(Error, Debug)]
 pub enum Error {
     #[error("Io Error: {0}")]
     Io(io::Error),
     #[error("Invalid interface address")]
     InvalidInterfaceAddress,
     #[error("Invalid bitrate")]
-    InvalidBitRate, 
+    InvalidBitRate,
     #[error("PCAN Init Failed with code {0}: `{1}`")]
     PCanInitFailed(u32, String),
+    #[error("Write failed with code {0}: `{1}`")]
+    PCanWriteFailed(u32, String),
+    #[error("Read failed with code {0}: `{1}`")]
+    PCanReadFailed(u32, String),
+    #[error("Bus error: {0}")]
+    BusError(BusError),
+    #[error("Transmit full")]
+    TransmitQueueFull,
 }
 
 impl From<io::Error> for Error {
@@ -75,7 +92,6 @@ impl From<io::Error> for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
-
 
 #[cfg(target_os = "windows")]
 mod windows;
@@ -94,4 +110,3 @@ mod socketcan;
 
 #[cfg(target_os = "linux")]
 pub use linux::Bus;
-
