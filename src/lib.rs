@@ -53,7 +53,7 @@ impl Message {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum BusError {
     #[error("Bus-light warning")]
     LightWarning,
