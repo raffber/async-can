@@ -24,10 +24,10 @@ pub struct DataFrame {
 }
 
 impl DataFrame {
-    fn id(&self) -> u32 { self.id }
-    fn ext_id(&self) -> bool { self.ext_id }
-    fn data(&self) -> &[u8] { &self.data }
-    fn dlc(&self) -> u8 { self.data.len() as u8 }
+    pub fn id(&self) -> u32 { self.id }
+    pub fn ext_id(&self) -> bool { self.ext_id }
+    pub fn data(&self) -> &[u8] { &self.data }
+    pub fn dlc(&self) -> u8 { self.data.len() as u8 }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -38,9 +38,9 @@ pub struct RemoteFrame {
 }
 
 impl RemoteFrame {
-    fn id(&self) -> u32 { self.id }
-    fn ext_id(&self) -> bool { self.ext_id }
-    fn dlc(&self) -> u8 { self.dlc }
+    pub fn id(&self) -> u32 { self.id }
+    pub fn ext_id(&self) -> bool { self.ext_id }
+    pub fn dlc(&self) -> u8 { self.dlc }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
