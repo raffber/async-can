@@ -7,6 +7,10 @@ extern crate dlopen_derive;
 #[cfg(target_os = "windows")]
 extern crate lazy_static;
 
+const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
+const CAN_STD_ID_MASK: u32 = 0x7FF;
+const CAN_MAX_DLC: usize = 8;
+
 use thiserror::Error;
 
 use serde::{Deserialize, Serialize};
@@ -19,11 +23,24 @@ pub struct DataFrame {
     data: Vec<u8>,
 }
 
+impl DataFrame {
+    fn id(&self) -> u32 { self.id }
+    fn ext_id(&self) -> bool { self.ext_id }
+    fn data(&self) -> &[u8] { &self.data }
+    fn dlc(&self) -> u8 { self.data.len() as u8 }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RemoteFrame {
     id: u32,
     ext_id: bool,
     dlc: u8,
+}
+
+impl RemoteFrame {
+    fn id(&self) -> u32 { self.id }
+    fn ext_id(&self) -> bool { self.ext_id }
+    fn dlc(&self) -> u8 { self.dlc }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -38,6 +55,38 @@ pub struct Timestamp {
 }
 
 impl Message {
+    pub fn new_data(id: u32, ext_id: bool, data: &[u8]) -> Option<Message> {
+        if ext_id && id > CAN_EXT_ID_MASK {
+            return None;
+        } else if !ext_id && id > CAN_STD_ID_MASK {
+            return None;
+        }
+        if data.len() > CAN_MAX_DLC {
+            return None;
+        }
+        Some(Message::Data(DataFrame {
+            id,
+            ext_id,
+            data: data.to_vec(),
+        }))
+    }
+
+    pub fn new_remote(id: u32, ext_id: bool, dlc: u8) -> Option<Message> {
+        if ext_id && id > CAN_EXT_ID_MASK {
+            return None;
+        } else if !ext_id && id > CAN_STD_ID_MASK {
+            return None;
+        }
+        if dlc as usize > CAN_MAX_DLC {
+            return None;
+        }
+        Some(Message::Remote(RemoteFrame {
+            id,
+            ext_id,
+            dlc,
+        }))
+    }
+
     pub fn id(&self) -> u32 {
         match self {
             Message::Data(x) => x.id,
