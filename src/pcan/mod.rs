@@ -106,7 +106,7 @@ impl PCanDevice {
                         Err(Error::PCanReadFailed(err.other_error(), err.description()))
                     } else if err.bus_error() != 0 {
                         Err(Error::BusError(api::parse_bus_error(err.bus_error())))
-                    } else if err.rx_empty() {
+                    } else if err.rx_empty() || err.rx_overflow() {
                         // TODO: replace with event based rx
                         thread::sleep(Duration::from_millis(sleep_time));
                         continue;
