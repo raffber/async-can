@@ -74,18 +74,13 @@ impl CanFrame {
     }
 
     pub(crate) fn from_message(msg: Message) -> Result<Self, CanFrameError> {
-        if let Some(err) = CanFrameError::validate_id(msg.id(), msg.ext_id()) {
-            return Err(err);
-        }
+        msg.validate()?;
         let mut id = msg.id();
         if msg.ext_id() {
             id |= CAN_EFF_FLAG;
         }
         match msg {
             Message::Data(msg) => {
-                if msg.data.len() > CAN_MAX_DLEN {
-                    return Err(CanFrameError::DataTooLong);
-                }
                 let mut can_data = [0_u8; CAN_MAX_DLEN];
                 can_data[0..msg.data.len()].copy_from_slice(&msg.data);
                 Ok(CanFrame {
@@ -99,9 +94,6 @@ impl CanFrame {
             }
             Remote(msg) => {
                 id |= CAN_RTR_FLAG;
-                if msg.dlc > CAN_MAX_DLEN as u8 {
-                    return Err(CanFrameError::DataTooLong);
-                }
                 Ok(CanFrame {
                     id,
                     dlc: msg.dlc,

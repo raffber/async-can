@@ -105,7 +105,29 @@ impl Message {
             Message::Remote(x) => x.ext_id,
         }
     }
-} 
+
+    pub fn validate(&self) -> std::result::Result<(), CanFrameError> {
+        if let Some(err) = CanFrameError::validate_id(self.id(), self.ext_id()) {
+            return Err(err);
+        }
+        match self {
+            Message::Data(frame) => {
+                if frame.data.len() > 8 {
+                    Err(CanFrameError::DataTooLong)
+                } else {
+                    Ok(())
+                }
+            }
+            Message::Remote(frame) => {
+                if frame.dlc > 8 {
+                    Err(CanFrameError::DataTooLong)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+}
 
 pub enum CanFrameError {
     IdTooLong,
@@ -121,8 +143,8 @@ impl From<CanFrameError> for crate::Error {
     }
 }
 
-impl CanFrameError { 
-    fn validate_id(id: u32, ext_id: bool) ->Option<CanFrameError> {
+impl CanFrameError {
+    fn validate_id(id: u32, ext_id: bool) -> Option<CanFrameError> {
         if ext_id {
             if id > CAN_EXT_ID_MASK {
                 return Some(CanFrameError::IdTooLong);
