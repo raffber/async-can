@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::sys;
-use crate::{DataFrame, Message, RemoteFrame};
+use crate::{DataFrame, Message, RemoteFrame, CanFrameError};
 use dlopen::wrapper::{Container, WrapperApi};
 use lazy_static;
 use std::os::raw::c_char;
@@ -31,6 +31,52 @@ pub struct PCanMessage {
     pub tp: u8,
     pub len: u8,
     pub data: [u8; 8],
+}
+
+impl PCanMessage {
+    pub fn from_message(msg: Message) -> Result<Self, CanFrameError>  {
+        if let Some(err) = CanFrameError::validate_id(msg.id(), msg.ext_id()) {
+            return Err(err);
+        }
+        match msg {
+            Message::Data(frame) => {
+                if frame.data.len() > 8 {
+                    return Err(CanFrameError::DataTooLong);
+                }
+                
+                let mut data = [0_u8; 8];
+                data[0 .. frame.data.len()].copy_from_slice(&frame.data);
+                let tp = if frame.ext_id {
+                    sys::PCAN_MESSAGE_EXTENDED
+                } else {
+                    sys::PCAN_MESSAGE_STANDARD
+                };
+                Ok(PCanMessage {
+                    id: frame.id,
+                    tp: tp as u8,
+                    len: frame.data.len() as u8,
+                    data,
+                })
+            }
+            Message::Remote(frame) => {
+                if frame.dlc > 8 {
+                    return Err(CanFrameError::DataTooLong);
+                }
+                let mut tp = if frame.ext_id {
+                    sys::PCAN_MESSAGE_EXTENDED
+                } else {
+                    sys::PCAN_MESSAGE_STANDARD
+                };
+                tp |= sys::PCAN_MESSAGE_RTR;
+                Ok(PCanMessage {
+                    id: frame.id,
+                    tp: tp as u8,
+                    len: frame.dlc,
+                    data: [0_u8; 8],
+                })
+            }
+        } 
+    } 
 }
 
 #[repr(C)]
@@ -105,7 +151,7 @@ impl Error {
         self.code & sys::PCAN_ERROR_QRCVEMPTY > 0
     }
 
-    pub fn result(status: u32) -> Result<()> {
+    pub fn result(status: u32) -> Result<(), Error> {
         if status == 0 {
             Ok(())
         } else {
@@ -113,8 +159,6 @@ impl Error {
         }
     }
 }
-
-pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct PCan {
     api: Container<Api>,
@@ -146,7 +190,7 @@ impl PCan {
         hw_type: HwType,
         port: u32,
         interrupt: u16,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let status = unsafe {
             PCAN.api
                 .CAN_Initialize(channel, baud, hw_type, port, interrupt)
@@ -171,12 +215,12 @@ impl PCan {
         Error::result(status)
     }
 
-    pub fn uninitialize(channel: Handle) -> Result<()> {
+    pub fn uninitialize(channel: Handle) -> Result<(), Error> {
         let status = unsafe { PCAN.api.CAN_Uninitialize(channel) };
         Error::result(status)
     }
 
-    pub fn reset(channel: Handle) -> Result<()> {
+    pub fn reset(channel: Handle) -> Result<(), Error> {
         let status = unsafe { PCAN.api.CAN_Reset(channel) };
         Error::result(status)
     }
@@ -204,49 +248,12 @@ impl PCan {
         }
     }
 
-    pub fn write(channel: Handle, msg: PCanMessage) -> Result<()> {
+    pub fn write(channel: Handle, msg: PCanMessage) -> Result<(), Error> {
         let status = unsafe { PCAN.api.CAN_Write(channel, &msg as *const PCanMessage) };
         Error::result(status)
     }
 }
 
-// TODO: this is going to panic if Message was deserialized
-// from an incorrect value
-impl From<Message> for PCanMessage {
-    fn from(msg: Message) -> Self {
-        match msg {
-            Message::Data(frame) => {
-                let mut data = [0_u8; 8];
-                data[0 .. frame.data.len()].copy_from_slice(&frame.data);
-                let tp = if frame.ext_id {
-                    sys::PCAN_MESSAGE_EXTENDED
-                } else {
-                    sys::PCAN_MESSAGE_STANDARD
-                };
-                PCanMessage {
-                    id: frame.id,
-                    tp: tp as u8,
-                    len: frame.data.len() as u8,
-                    data,
-                }
-            }
-            Message::Remote(frame) => {
-                let mut tp = if frame.ext_id {
-                    sys::PCAN_MESSAGE_EXTENDED
-                } else {
-                    sys::PCAN_MESSAGE_STANDARD
-                };
-                tp |= sys::PCAN_MESSAGE_RTR;
-                PCanMessage {
-                    id: frame.id,
-                    tp: tp as u8,
-                    len: frame.dlc,
-                    data: [0_u8; 8],
-                }
-            }
-        }
-    }
-}
 
 impl Into<Message> for PCanMessage {
     fn into(self) -> Message {

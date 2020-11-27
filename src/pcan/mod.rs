@@ -2,7 +2,7 @@ mod api;
 mod sys;
 use crate::{Error, Result};
 use crate::{Message, Timestamp};
-use api::Handle;
+use api::{Handle, PCanMessage};
 use api::PCan;
 use std::thread;
 use std::time::Duration;
@@ -68,7 +68,7 @@ impl PCanDevice {
         let handle = self.handle;
         // we unwrap because shouldn't panic
         task::spawn_blocking(move || {
-            let msg = msg.into();
+            let msg = PCanMessage::from_message(msg)?;
             match PCan::write(handle, msg) {
                 Err(err) => {
                     if err.other_error() != 0 {

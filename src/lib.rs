@@ -17,9 +17,9 @@ pub use linux::Bus;
 #[cfg(target_os = "windows")]
 pub use windows::Bus;
 
-const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
-const CAN_STD_ID_MASK: u32 = 0x7FF;
-const CAN_MAX_DLC: usize = 8;
+pub const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
+pub const CAN_STD_ID_MASK: u32 = 0x7FF;
+pub const CAN_MAX_DLC: usize = 8;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DataFrame {
@@ -104,6 +104,35 @@ impl Message {
             Message::Data(x) => x.ext_id,
             Message::Remote(x) => x.ext_id,
         }
+    }
+} 
+
+pub enum CanFrameError {
+    IdTooLong,
+    DataTooLong,
+}
+
+impl From<CanFrameError> for crate::Error {
+    fn from(x: CanFrameError) -> Self {
+        match x {
+            CanFrameError::IdTooLong => Error::IdTooLong,
+            CanFrameError::DataTooLong => Error::DataTooLong
+        }
+    }
+}
+
+impl CanFrameError { 
+    fn validate_id(id: u32, ext_id: bool) ->Option<CanFrameError> {
+        if ext_id {
+            if id > CAN_EXT_ID_MASK {
+                return Some(CanFrameError::IdTooLong);
+            }
+        } else {
+            if id > CAN_STD_ID_MASK {
+                return Some(CanFrameError::IdTooLong);
+            }
+        }
+        None
     }
 }
 

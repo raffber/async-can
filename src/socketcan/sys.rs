@@ -7,10 +7,6 @@ const CAN_EFF_FLAG: u32 = 0x80000000;
 const CAN_RTR_FLAG: u32 = 0x40000000;
 const CAN_ERR_FLAG: u32 = 0x20000000;
 
-const CAN_SFF_MASK: u32 = 0x7FF;
-const CAN_EFF_MASK: u32 = 0x1FFFFFFF;
-const CAN_ERR_MASK: u32 = 0x1FFFFFFF;
-
 const CAN_SFF_ID_BITS: u32 = 11;
 const CAN_EFF_ID_BITS: u32 = 29;
 
@@ -29,20 +25,6 @@ pub(crate) struct CanFrame {
     res0: u8,
     res1: u8,
     data: [u8; CAN_MAX_DLEN],
-}
-
-pub enum CanFrameError {
-    IdTooLong,
-    DataTooLong,
-}
-
-impl From<CanFrameError> for crate::Error {
-    fn from(x: CanFrameError) -> Self {
-        match x {
-            CanFrameError::IdTooLong => crate::Error::IdTooLong,
-            CanFrameError::DataTooLong => crate::Error::DataTooLong
-        }
-    }
 }
 
 impl CanFrame {
@@ -80,7 +62,9 @@ impl CanFrame {
     }
 
     pub(crate) fn from_message(msg: Message) -> Result<Self, CanFrameError> {
-        Self::validate_id(msg.id(), msg.ext_id())?;
+        if let Some(err) = Self::validate_id(msg.id(), msg.ext_id()) {
+            return Err(err);
+        }
         let mut id = msg.id();
         if msg.ext_id() {
             id |= CAN_EFF_FLAG;
@@ -116,20 +100,6 @@ impl CanFrame {
 
     }
 
-    fn validate_id(id: u32, ext_id: bool) -> Result<u32, CanFrameError> {
-        let mut id = id;
-        if ext_id {
-            if id > CAN_EFF_MASK {
-                return Err(CanFrameError::IdTooLong);
-            }
-            id |= CAN_EFF_FLAG;
-        } else {
-            if id > CAN_SFF_MASK {
-                return Err(CanFrameError::IdTooLong);
-            }
-        }
-        Ok(id)
-    }
 }
 
 #[repr(C)]
