@@ -119,7 +119,11 @@ pub struct Error {
 
 impl Error {
     pub fn new(status: u32) -> Option<Error> {
-        Some(Error { code: status })
+        if status == 0 {
+            None
+        } else {
+            Some(Error { code: status })
+        }        
     }
 
     pub fn description(&self) -> String {
@@ -241,7 +245,7 @@ impl PCan {
             let timestamp = timestamp.assume_init();
             (Error::new(status), msg, timestamp)
         };
-        if msg.id & sys::PCAN_MESSAGE_STATUS > 0 {
+        if msg.tp & sys::PCAN_MESSAGE_STATUS as u8 > 0 {
             (err, None)
         } else {
             (err, Some((msg, timestamp)))

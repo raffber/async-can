@@ -96,13 +96,9 @@ impl PCanDevice {
     pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
         let handle = self.handle;
         let (msg, stamp) = task::spawn_blocking(move || {
+            let sleep_time = 2;
             loop {
                 let (err, data) = PCan::read(handle);
-                if let Some(err) = err.as_ref() {
-                    if err.rx_empty() {
-                        continue
-                    }
-                }
                 let ret = if let Some((msg, stamp)) = data {
                     Ok((msg, stamp))
                 } else if let Some(err) = err {
@@ -112,13 +108,15 @@ impl PCanDevice {
                         Err(Error::BusError(api::parse_bus_error(err.bus_error())))
                     } else if err.rx_empty() {
                         // TODO: replace with event based rx
-                        thread::sleep(Duration::from_millis(2));
+                        thread::sleep(Duration::from_millis(sleep_time));
                         continue;
                     } else {
-                        Err(Error::PCanReadFailed(0, "Unknown error".to_string()))
+                        Err(Error::PCanReadFailed(err.code, err.description()))
                     }
                 } else {
-                    Err(Error::PCanReadFailed(0, "Unknown error".to_string()))
+                    // TODO: replace with event based rx
+                    thread::sleep(Duration::from_millis(sleep_time));
+                    continue;
                 };
                 return ret;
             }
