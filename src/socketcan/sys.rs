@@ -1,7 +1,7 @@
 use std::os::raw::{c_int, c_short};
 
 use crate::Message::Remote;
-use crate::{DataFrame, Message, RemoteFrame};
+use crate::{DataFrame, Message, RemoteFrame, CanFrameError, CAN_EXT_ID_MASK, CAN_STD_ID_MASK};
 
 const CAN_EFF_FLAG: u32 = 0x80000000;
 const CAN_RTR_FLAG: u32 = 0x40000000;
@@ -29,10 +29,16 @@ pub(crate) struct CanFrame {
 
 impl CanFrame {
     pub(crate) fn new_data(id: u32, ext_id: bool, data: &[u8]) -> Result<Self, CanFrameError> {
-        let id = Self::validate_id(id, ext_id)?;
+        if let Some(err) = CanFrameError::validate_id(id, ext_id) {
+            return Err(err);
+        }
 
         if data.len() > CAN_MAX_DLEN {
             return Err(CanFrameError::DataTooLong);
+        }
+        let mut id = id;
+        if ext_id {
+            id |= CAN_EFF_FLAG;
         }
 
         let mut can_data = [0_u8; CAN_MAX_DLEN];
@@ -49,7 +55,13 @@ impl CanFrame {
     }
 
     pub(crate) fn new_rtr(id: u32, ext_id: bool, dlc: u8) -> Result<Self, CanFrameError> {
-        let mut id = Self::validate_id(id, ext_id)?;
+        if let Some(err) = CanFrameError::validate_id(id, ext_id) {
+            return Err(err);
+        }
+        let mut id = id;
+        if ext_id {
+            id |= CAN_EFF_FLAG;
+        }
         id |= CAN_RTR_FLAG;
         Ok(Self {
             id,
@@ -62,7 +74,7 @@ impl CanFrame {
     }
 
     pub(crate) fn from_message(msg: Message) -> Result<Self, CanFrameError> {
-        if let Some(err) = Self::validate_id(msg.id(), msg.ext_id()) {
+        if let Some(err) = CanFrameError::validate_id(msg.id(), msg.ext_id()) {
             return Err(err);
         }
         let mut id = msg.id();
@@ -87,6 +99,9 @@ impl CanFrame {
             }
             Remote(msg) => {
                 id |= CAN_RTR_FLAG;
+                if msg.dlc > CAN_MAX_DLEN as u8 {
+                    return Err(CanFrameError::DataTooLong);
+                }
                 Ok(CanFrame {
                     id,
                     dlc: msg.dlc,
@@ -114,9 +129,9 @@ pub(crate) struct CanSocketAddr {
 impl Into<Message> for CanFrame {
     fn into(self) -> Message {
         let (id, ext_id) = if self.id & CAN_EFF_FLAG > 0 {
-            (self.id & CAN_EFF_MASK, true)
+            (self.id & CAN_EXT_ID_MASK, true)
         } else {
-            (self.id & CAN_SFF_MASK, false)
+            (self.id & CAN_STD_ID_MASK, false)
         };
         let rtr = self.id & CAN_RTR_FLAG > 0;
         if rtr {
