@@ -13,6 +13,7 @@ use dlopen::wrapper::{Container, WrapperApi};
 use lazy_static;
 use std::os::raw::c_char;
 use tempfile::NamedTempFile;
+use crate::{CAN_STD_ID_MASK, CAN_EXT_ID_MASK};
 
 const PCAN_LIB: &'static [u8] = include_bytes!("../../lib/PCANBasic.dll");
 
@@ -76,7 +77,34 @@ impl PCanMessage {
                 })
             }
         } 
-    } 
+    }
+
+    pub fn into_message(self) -> crate::Result<Message> {
+        let ext_id = (self.tp & sys::PCAN_MESSAGE_EXTENDED as u8) > 0;
+        let rtr = self.tp & (sys::PCAN_MESSAGE_RTR as u8) > 0;
+        if self.len > 8 {
+            return Err(crate::Error::DataTooLong);
+        }
+        if self.id > CAN_EXT_ID_MASK && ext_id {
+            return Err(crate::Error::IdTooLong);
+        } else if self.id > CAN_STD_ID_MASK && !ext_id {
+            return Err(crate::Error::IdTooLong);
+        }
+        if rtr {
+            Ok(Message::Remote(RemoteFrame {
+                id: self.id,
+                ext_id,
+                dlc: self.len,
+            }))
+        } else {
+            let data = self.data[0..self.len as usize].to_vec();
+            Ok(Message::Data(DataFrame {
+                id: self.id,
+                ext_id,
+                data,
+            }))
+        }
+    }
 }
 
 #[repr(C)]
@@ -204,7 +232,6 @@ impl PCan {
             // TODO: how to tell exactly if this is an error?
             return Ok(());
         }
-        println!("CAN_Initalize: {}", status);
         Error::result(status)?;
         let status = unsafe {
             let on = sys::PCAN_PARAMETER_ON as i32;
@@ -215,7 +242,6 @@ impl PCan {
                 size_of::<i32>() as u32,
             )
         };
-        println!("CAN_SetValue: {}", status);
         Error::result(status)
     }
 
@@ -255,28 +281,6 @@ impl PCan {
     pub fn write(channel: Handle, msg: PCanMessage) -> Result<(), Error> {
         let status = unsafe { PCAN.api.CAN_Write(channel, &msg as *const PCanMessage) };
         Error::result(status)
-    }
-}
-
-
-impl Into<Message> for PCanMessage {
-    fn into(self) -> Message {
-        let ext_id = (self.tp & sys::PCAN_MESSAGE_EXTENDED as u8) > 0;
-        let rtr = self.tp & (sys::PCAN_MESSAGE_RTR as u8) > 0;
-        if rtr {
-            Message::Remote(RemoteFrame {
-                id: self.id,
-                ext_id,
-                dlc: self.len,
-            })
-        } else {
-            let data = self.data[0..self.len as usize].to_vec();
-            Message::Data(DataFrame {
-                id: self.id,
-                ext_id,
-                data,
-            })
-        }
     }
 }
 

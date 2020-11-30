@@ -99,9 +99,7 @@ impl PCanDevice {
             let sleep_time = 2;
             loop {
                 let (err, data) = PCan::read(handle);
-                let ret = if let Some((msg, stamp)) = data {
-                    Ok((msg, stamp))
-                } else if let Some(err) = err {
+                let ret = if let Some(err) = err {
                     if err.other_error() != 0 {
                         Err(Error::PCanReadFailed(err.other_error(), err.description()))
                     } else if err.bus_error() != 0 {
@@ -113,6 +111,8 @@ impl PCanDevice {
                     } else {
                         Err(Error::PCanReadFailed(err.code, err.description()))
                     }
+                } else if let Some((msg, timestamp)) = data {
+                    Ok((msg, timestamp))
                 } else {
                     // TODO: replace with event based rx
                     thread::sleep(Duration::from_millis(sleep_time));
@@ -123,7 +123,7 @@ impl PCanDevice {
         })
         .await
         .unwrap()?;
-        let msg: Message = msg.into();
+        let msg = msg.into_message()?;
         Ok((msg, stamp.into()))
     }
 }
