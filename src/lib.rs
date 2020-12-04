@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[cfg(target_os = "linux")]
-pub use linux::Bus;
+pub use linux::{Sender, Receiver};
 #[cfg(target_os = "windows")]
 pub use windows::{Sender, Receiver};
 
