@@ -15,7 +15,7 @@ use thiserror::Error;
 #[cfg(target_os = "linux")]
 pub use linux::Bus;
 #[cfg(target_os = "windows")]
-pub use windows::Bus;
+pub use windows::{Sender, Receiver};
 
 pub const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
 pub const CAN_STD_ID_MASK: u32 = 0x7FF;

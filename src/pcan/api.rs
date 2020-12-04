@@ -271,10 +271,10 @@ impl PCan {
             let timestamp = timestamp.assume_init();
             (Error::new(status), msg, timestamp)
         };
-        if msg.tp & sys::PCAN_MESSAGE_STATUS as u8 > 0 {
-            (err, None)
-        } else {
+        if msg.tp & 0x03 > 0 || msg.tp == 0 { // rtr, std, ext
             (err, Some((msg, timestamp)))
+        } else {
+            (err, None)            
         }
     }
 

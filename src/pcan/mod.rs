@@ -4,17 +4,15 @@ use crate::{Error, Result};
 use crate::{Message, Timestamp};
 use api::{Handle, PCanMessage};
 use api::PCan;
-use std::thread;
+use std::{sync::Arc, thread};
 use std::time::Duration;
 use tokio::task;
+use tokio::sync::mpsc;
+use std::sync::Mutex;
 
 const IOPORT: u32 = 0x02A0;
 const INTERRUPT: u16 = 11;
 
-#[derive(Clone)]
-pub struct PCanDevice {
-    handle: Handle,
-}
 
 fn get_baud(bitrate: u32) -> Result<u16> {
     let ret = match bitrate {
@@ -37,30 +35,46 @@ fn get_baud(bitrate: u32) -> Result<u16> {
     Ok(ret as u16)
 }
 
-impl PCanDevice {
-    pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
-        let ifname = ifname.to_lowercase();
-        let handle = if let Some(usb_num) = ifname.strip_prefix("usb") {
-            let num: u16 = usb_num
-                .parse()
-                .map_err(|_| Error::InvalidInterfaceAddress)?;
-            if num == 0 || num > 16 {
-                return Err(Error::InvalidInterfaceAddress);
-            }
-            num + 0x50
-        } else {
+pub struct PCanReceiver {
+    handle: Handle,
+    rx: mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
+    cancel: Arc<Mutex<bool>>
+}
+
+#[derive(Clone)]
+pub struct PCanSender {
+    handle: Handle,
+}
+
+fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
+    let ifname = ifname.to_lowercase();
+    let handle = if let Some(usb_num) = ifname.strip_prefix("usb") {
+        let num: u16 = usb_num
+            .parse()
+            .map_err(|_| Error::InvalidInterfaceAddress)?;
+        if num == 0 || num > 16 {
             return Err(Error::InvalidInterfaceAddress);
-        };
-        let baud = get_baud(bitrate)?;
-        if let Err(err) = PCan::initalize(
-            handle,
-            baud as u16,
-            sys::PCAN_TYPE_ISA as u8,
-            IOPORT,
-            INTERRUPT,
-        ) {
-            return Err(Error::PCanInitFailed(err.code, err.description()));
         }
+        num + 0x50
+    } else {
+        return Err(Error::InvalidInterfaceAddress);
+    };
+    let baud = get_baud(bitrate)?;
+    if let Err(err) = PCan::initalize(
+        handle,
+        baud as u16,
+        sys::PCAN_TYPE_ISA as u8,
+        IOPORT,
+        INTERRUPT,
+    ) {
+        return Err(Error::PCanInitFailed(err.code, err.description()));
+    }
+    Ok(handle)
+}
+
+impl PCanSender {
+    pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
+        let handle = connect_handle(ifname, bitrate)?;
         Ok(Self { handle })
     }
 
@@ -88,42 +102,81 @@ impl PCanDevice {
         .await
         .unwrap()
     }
+}
 
-    pub async fn recv(&self) -> Result<Message> {
+impl PCanReceiver {
+    pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
+        let handle = connect_handle(ifname, bitrate)?;
+        let (rx, cancel) = Self::start_receive(handle);
+        Ok(Self { handle, rx, cancel})
+    }
+
+    fn receive_iteration(handle: Handle) -> Option<Result<(Message, Timestamp)>> {
+        let sleep_time = 2;
+        let (err, data) = PCan::read(handle);
+        if let Some(err) = err {
+            if err.other_error() != 0 {
+                Some(Err(Error::PCanReadFailed(err.other_error(), err.description())))
+            } else if err.bus_error() != 0 {
+                Some(Err(Error::BusError(api::parse_bus_error(err.bus_error()))))
+            } else if err.rx_empty() || err.rx_overflow() {
+                // TODO: replace with event based rx
+                thread::sleep(Duration::from_millis(sleep_time));
+                None
+            } else {
+                Some(Err(Error::PCanReadFailed(err.code, err.description())))
+            }
+        } else if let Some((msg, timestamp)) = data {
+            if let Ok(msg) = msg.into_message() {
+                Some(Ok((msg, timestamp.into())))
+            } else {
+                None
+            }
+        } else {
+            // TODO: replace with event based rx
+            thread::sleep(Duration::from_millis(sleep_time));
+            None
+        }        
+    }
+
+    pub fn start_receive(handle: Handle) -> (mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>, Arc<Mutex<bool>>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let cancel = Arc::new(Mutex::new(false));
+        let cancel_ret = cancel.clone();
+        thread::spawn(move || {
+            loop {
+                {
+                    let cancel = cancel.lock().unwrap();
+                    if *cancel {
+                        break;
+                    }
+                }
+                if let Some(ret) = Self::receive_iteration(handle) {
+                    if tx.send(ret).is_err() {
+                        break;
+                    }
+                }             
+            }
+        });
+        (rx, cancel_ret)
+    }
+
+    pub async fn recv(&mut self) -> Result<Message> {
         self.recv_with_timestamp().await.map(|(msg, _)| msg)
     }
 
-    pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
-        let handle = self.handle;
-        let (msg, stamp) = task::spawn_blocking(move || {
-            let sleep_time = 2;
-            loop {
-                let (err, data) = PCan::read(handle);
-                let ret = if let Some(err) = err {
-                    if err.other_error() != 0 {
-                        Err(Error::PCanReadFailed(err.other_error(), err.description()))
-                    } else if err.bus_error() != 0 {
-                        Err(Error::BusError(api::parse_bus_error(err.bus_error())))
-                    } else if err.rx_empty() || err.rx_overflow() {
-                        // TODO: replace with event based rx
-                        thread::sleep(Duration::from_millis(sleep_time));
-                        continue;
-                    } else {
-                        Err(Error::PCanReadFailed(err.code, err.description()))
-                    }
-                } else if let Some((msg, timestamp)) = data {
-                    Ok((msg, timestamp))
-                } else {
-                    // TODO: replace with event based rx
-                    thread::sleep(Duration::from_millis(sleep_time));
-                    continue;
-                };
-                return ret;
-            }
-        })
-        .await
-        .unwrap()?;
-        let msg = msg.into_message()?;
-        Ok((msg, stamp.into()))
+    pub async fn recv_with_timestamp(&mut self) -> Result<(Message, Timestamp)> {
+        match self.rx.recv().await {
+            Some(msg) => msg,
+            None => Err(crate::Error::InvalidBitRate)
+        }
+    }
+}
+
+impl Drop for PCanReceiver {
+    fn drop(&mut self) {
+        if let Ok(mut cancel) = self.cancel.lock() {
+            *cancel = true;
+        }
     }
 }

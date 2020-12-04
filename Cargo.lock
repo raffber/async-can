@@ -28,6 +28,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "libc",
+ "log",
  "mio",
  "serde",
  "tempfile",
