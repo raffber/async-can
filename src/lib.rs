@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[cfg(target_os = "linux")]
-pub use linux::{Sender, Receiver};
+pub use linux_socketcan::{Sender, Receiver};
 #[cfg(target_os = "windows")]
 pub use windows::{Sender, Receiver};
 
@@ -209,7 +209,7 @@ mod windows;
 mod pcan;
 
 #[cfg(target_os = "linux")]
-mod linux;
+mod linux_socketcan;
 
 #[cfg(target_os = "linux")]
 mod socketcan;
