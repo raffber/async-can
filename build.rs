@@ -1,4 +1,3 @@
-#[cfg(target_os = "windows")]
 fn main() {
     use std::env;
     use std::path::PathBuf;
@@ -16,6 +15,3 @@ fn main() {
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
 }
-
-#[cfg(target_os = "linux")]
-fn main() {}

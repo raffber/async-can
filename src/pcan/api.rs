@@ -15,7 +15,11 @@ use std::os::raw::c_char;
 use tempfile::NamedTempFile;
 use crate::{CAN_STD_ID_MASK, CAN_EXT_ID_MASK};
 
+#[cfg(target_os = "windows")]
 const PCAN_LIB: &'static [u8] = include_bytes!("../../lib/PCANBasic.dll");
+
+#[cfg(target_os = "linux")]
+const PCAN_LIB: &'static [u8] = include_bytes!("../../lib/libpcanbasic.so");
 
 pub type Handle = u16;
 pub type Status = u32;
