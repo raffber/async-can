@@ -1,10 +1,8 @@
 #![allow(dead_code)]
 
 #[macro_use]
-#[cfg(target_os = "windows")]
 extern crate dlopen_derive;
 #[macro_use]
-#[cfg(target_os = "windows")]
 extern crate lazy_static;
 
 use std::io;
@@ -12,10 +10,10 @@ use std::io;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[cfg(target_os = "linux")]
-pub use linux_socketcan::{Sender, Receiver};
-#[cfg(target_os = "windows")]
-pub use windows::{Sender, Receiver};
+// #[cfg(target_os = "linux")]
+// pub use linux_socketcan::{Sender, Receiver};
+
+pub use pcan::{Sender, Receiver};
 
 pub const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
 pub const CAN_STD_ID_MASK: u32 = 0x7FF;
@@ -202,10 +200,6 @@ impl From<io::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[cfg(target_os = "windows")]
-mod windows;
-
-#[cfg(target_os = "windows")]
 mod pcan;
 
 #[cfg(target_os = "linux")]

@@ -35,14 +35,14 @@ fn get_baud(bitrate: u32) -> Result<u16> {
     Ok(ret as u16)
 }
 
-pub struct PCanReceiver {
+pub struct Receiver {
     handle: Handle,
     rx: mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
     cancel: Arc<Mutex<bool>>
 }
 
 #[derive(Clone)]
-pub struct PCanSender {
+pub struct Sender {
     handle: Handle,
 }
 
@@ -72,7 +72,7 @@ fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
     Ok(handle)
 }
 
-impl PCanSender {
+impl Sender {
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let handle = connect_handle(ifname, bitrate)?;
         Ok(Self { handle })
@@ -104,7 +104,7 @@ impl PCanSender {
     }
 }
 
-impl PCanReceiver {
+impl Receiver {
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let handle = connect_handle(ifname, bitrate)?;
         let (rx, cancel) = Self::start_receive(handle);
@@ -173,7 +173,7 @@ impl PCanReceiver {
     }
 }
 
-impl Drop for PCanReceiver {
+impl Drop for Receiver {
     fn drop(&mut self) {
         if let Ok(mut cancel) = self.cancel.lock() {
             *cancel = true;
