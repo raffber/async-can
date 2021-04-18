@@ -44,14 +44,14 @@ mod waiter {
     use std::thread;
     use std::time::Duration;
 
-    struct Waiter;
+    pub(crate) struct Waiter;
 
     impl Waiter {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             Self
         }
 
-        fn wait_for_event(&self) {
+        pub(crate) fn wait_for_event(&self) {
             thread::sleep(Duration::from_millis(2))
         }
     }
