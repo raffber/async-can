@@ -122,10 +122,6 @@ impl CanSocket {
         .await
     }
 
-    pub async fn recv_with_timestamp(&self) -> io::Result<(Message, Timestamp)> {
-        todo!()
-    }
-
     pub async fn send(&self, msg: Message) -> crate::Result<()> {
         let frame: CanFrame = CanFrame::from_message(msg)?;
         let ret = poll_fn(|cx| {
