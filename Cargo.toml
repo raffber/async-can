@@ -22,6 +22,9 @@ mio = "0.6"
 futures = "0.3"
 tokio = {version = "0.2.23", features = ["io-driver"]}
 
+[target.'cfg(windows)'.dependencies]
+winapi= { version = "0.3.9", features = ["synchapi"]}
+
 [build-dependencies]
 bindgen = "0.55"
 

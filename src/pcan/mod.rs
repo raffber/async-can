@@ -2,17 +2,15 @@ mod api;
 mod sys;
 use crate::{Error, Result};
 use crate::{Message, Timestamp};
-use api::{Handle, PCanMessage};
 use api::PCan;
-use std::{sync::Arc, thread};
-use std::time::Duration;
-use tokio::task;
-use tokio::sync::mpsc;
+use api::{Handle, PCanMessage};
 use std::sync::Mutex;
+use std::{sync::Arc, thread};
+use tokio::sync::mpsc;
+use tokio::task;
 
 const IOPORT: u32 = 0x02A0;
 const INTERRUPT: u16 = 11;
-
 
 fn get_baud(bitrate: u32) -> Result<u16> {
     let ret = match bitrate {
@@ -38,20 +36,68 @@ fn get_baud(bitrate: u32) -> Result<u16> {
 pub struct Receiver {
     handle: Handle,
     rx: mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
-    cancel: Arc<Mutex<bool>>
+    cancel: Arc<Mutex<bool>>,
 }
 
-struct Waiter;
+#[cfg(target_os = "linux")]
+mod waiter {
+    use std::thread;
+    use std::time::Duration;
 
-impl Waiter {
-    fn new() -> Self {
-        Self
-    }
+    struct Waiter;
 
-    fn wait_for_event(&self) {
-        thread::sleep(Duration::from_millis(2))
+    impl Waiter {
+        fn new() -> Self {
+            Self
+        }
+
+        fn wait_for_event(&self) {
+            thread::sleep(Duration::from_millis(2))
+        }
     }
 }
+
+#[cfg(target_os = "windows")]
+mod waiter {
+    use std::{
+        ptr::{null, null_mut},
+        thread,
+        time::Duration,
+    };
+
+    use winapi::um::{handleapi::CloseHandle, winnt::HANDLE};
+
+    pub(crate) struct Waiter {
+        event_handle: HANDLE,
+    }
+
+    impl Waiter {
+        pub(crate) fn new() -> Self {
+            let event_handle = unsafe {
+                let handle = winapi::um::synchapi::CreateEventA(null_mut(), 0, 0, null());
+                if handle.is_null() {
+                    panic!("CreateEventA failed. That should not happen...");
+                }
+                handle
+            };
+            Waiter { event_handle }
+        }
+
+        pub(crate) fn wait_for_event(&self) {
+            thread::sleep(Duration::from_millis(2))
+        }
+    }
+
+    impl Drop for Waiter {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.event_handle);
+            }
+        }
+    }
+}
+
+type Waiter = waiter::Waiter;
 
 #[derive(Clone)]
 pub struct Sender {
@@ -120,14 +166,17 @@ impl Receiver {
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let handle = connect_handle(ifname, bitrate)?;
         let (rx, cancel) = Self::start_receive(handle);
-        Ok(Self { handle, rx, cancel})
+        Ok(Self { handle, rx, cancel })
     }
 
     fn receive_iteration(handle: Handle, waiter: &Waiter) -> Option<Result<(Message, Timestamp)>> {
         let (err, data) = PCan::read(handle);
         if let Some(err) = err {
             if err.other_error() != 0 {
-                Some(Err(Error::PCanReadFailed(err.other_error(), err.description())))
+                Some(Err(Error::PCanReadFailed(
+                    err.other_error(),
+                    err.description(),
+                )))
             } else if err.bus_error() != 0 {
                 Some(Err(Error::BusError(api::parse_bus_error(err.bus_error()))))
             } else if err.rx_empty() || err.rx_overflow() {
@@ -145,10 +194,15 @@ impl Receiver {
         } else {
             waiter.wait_for_event();
             None
-        }        
+        }
     }
 
-    pub fn start_receive(handle: Handle) -> (mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>, Arc<Mutex<bool>>) {
+    pub fn start_receive(
+        handle: Handle,
+    ) -> (
+        mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
+        Arc<Mutex<bool>>,
+    ) {
         let (tx, rx) = mpsc::unbounded_channel();
         let cancel = Arc::new(Mutex::new(false));
         let cancel_ret = cancel.clone();
@@ -165,7 +219,7 @@ impl Receiver {
                     if tx.send(ret).is_err() {
                         break;
                     }
-                }             
+                }
             }
         });
         (rx, cancel_ret)
@@ -178,7 +232,7 @@ impl Receiver {
     pub async fn recv_with_timestamp(&mut self) -> Result<(Message, Timestamp)> {
         match self.rx.recv().await {
             Some(msg) => msg,
-            None => Err(crate::Error::InvalidBitRate)
+            None => Err(crate::Error::InvalidBitRate),
         }
     }
 }

@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::sys;
-use crate::{Message, CanFrameError};
+use crate::{CanFrameError, Message};
 use dlopen::wrapper::{Container, WrapperApi};
 use lazy_static;
 use std::os::raw::c_char;
@@ -38,16 +38,16 @@ pub struct PCanMessage {
 }
 
 impl PCanMessage {
-    pub fn from_message(msg: Message) -> Result<Self, CanFrameError>  {
+    pub fn from_message(msg: Message) -> Result<Self, CanFrameError> {
         CanFrameError::validate_id(msg.id(), msg.ext_id())?;
         match msg {
             Message::Data(frame) => {
                 if frame.data().len() > 8 {
                     return Err(CanFrameError::DataTooLong);
                 }
-                
+
                 let mut data = [0_u8; 8];
-                data[0 .. frame.data().len()].copy_from_slice(&frame.data());
+                data[0..frame.data().len()].copy_from_slice(&frame.data());
                 let tp = if frame.ext_id() {
                     sys::PCAN_MESSAGE_EXTENDED
                 } else {
@@ -77,7 +77,7 @@ impl PCanMessage {
                     data: [0_u8; 8],
                 })
             }
-        } 
+        }
     }
 
     pub fn into_message(self) -> crate::Result<Message> {
@@ -86,7 +86,11 @@ impl PCanMessage {
         if rtr {
             Ok(Message::new_remote(self.id, ext_id, self.len)?)
         } else {
-            Ok(Message::new_data(self.id, ext_id, &self.data[0..self.len as usize])?)
+            Ok(Message::new_data(
+                self.id,
+                ext_id,
+                &self.data[0..self.len as usize],
+            )?)
         }
     }
 }
@@ -135,7 +139,7 @@ impl Error {
             None
         } else {
             Some(Error { code: status })
-        }        
+        }
     }
 
     pub fn description(&self) -> String {
@@ -255,10 +259,11 @@ impl PCan {
             let timestamp = timestamp.assume_init();
             (Error::new(status), msg, timestamp)
         };
-        if msg.tp & 0x03 > 0 || msg.tp == 0 { // rtr, std, ext
+        if msg.tp & 0x03 > 0 || msg.tp == 0 {
+            // rtr, std, ext
             (err, Some((msg, timestamp)))
         } else {
-            (err, None)            
+            (err, None)
         }
     }
 
