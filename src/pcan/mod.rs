@@ -48,7 +48,7 @@ mod waiter {
     pub(crate) struct Waiter;
 
     impl Waiter {
-        pub(crate) fn new(handle: Handle) -> Self {
+        pub(crate) fn new(_handle: Handle) -> Self {
             Self
         }
 
