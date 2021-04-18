@@ -41,6 +41,18 @@ pub struct Receiver {
     cancel: Arc<Mutex<bool>>
 }
 
+struct Waiter;
+
+impl Waiter {
+    fn new() -> Self {
+        Self
+    }
+
+    fn wait_for_event(&self) {
+        thread::sleep(Duration::from_millis(2))
+    }
+}
+
 #[derive(Clone)]
 pub struct Sender {
     handle: Handle,
@@ -111,8 +123,7 @@ impl Receiver {
         Ok(Self { handle, rx, cancel})
     }
 
-    fn receive_iteration(handle: Handle) -> Option<Result<(Message, Timestamp)>> {
-        let sleep_time = 2;
+    fn receive_iteration(handle: Handle, waiter: &Waiter) -> Option<Result<(Message, Timestamp)>> {
         let (err, data) = PCan::read(handle);
         if let Some(err) = err {
             if err.other_error() != 0 {
@@ -120,8 +131,7 @@ impl Receiver {
             } else if err.bus_error() != 0 {
                 Some(Err(Error::BusError(api::parse_bus_error(err.bus_error()))))
             } else if err.rx_empty() || err.rx_overflow() {
-                // TODO: replace with event based rx
-                thread::sleep(Duration::from_millis(sleep_time));
+                waiter.wait_for_event();
                 None
             } else {
                 Some(Err(Error::PCanReadFailed(err.code, err.description())))
@@ -133,8 +143,7 @@ impl Receiver {
                 None
             }
         } else {
-            // TODO: replace with event based rx
-            thread::sleep(Duration::from_millis(sleep_time));
+            waiter.wait_for_event();
             None
         }        
     }
@@ -144,6 +153,7 @@ impl Receiver {
         let cancel = Arc::new(Mutex::new(false));
         let cancel_ret = cancel.clone();
         thread::spawn(move || {
+            let waiter = Waiter::new();
             loop {
                 {
                     let cancel = cancel.lock().unwrap();
@@ -151,7 +161,7 @@ impl Receiver {
                         break;
                     }
                 }
-                if let Some(ret) = Self::receive_iteration(handle) {
+                if let Some(ret) = Self::receive_iteration(handle, &waiter) {
                     if tx.send(ret).is_err() {
                         break;
                     }
