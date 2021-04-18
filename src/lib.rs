@@ -213,8 +213,5 @@ pub type Result<T> = std::result::Result<T, Error>;
 mod pcan;
 
 #[cfg(target_os = "linux")]
-mod linux_socketcan;
-
-#[cfg(target_os = "linux")]
 mod socketcan;
 
