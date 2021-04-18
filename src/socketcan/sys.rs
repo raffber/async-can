@@ -1,7 +1,7 @@
 use std::os::raw::{c_int, c_short};
 
 use crate::Message::Remote;
-use crate::{DataFrame, Message, RemoteFrame, CanFrameError, CAN_EXT_ID_MASK, CAN_STD_ID_MASK};
+use crate::{Message, CanFrameError, CAN_EXT_ID_MASK, CAN_STD_ID_MASK};
 
 const CAN_EFF_FLAG: u32 = 0x80000000;
 const CAN_RTR_FLAG: u32 = 0x40000000;
@@ -29,9 +29,7 @@ pub(crate) struct CanFrame {
 
 impl CanFrame {
     pub(crate) fn new_data(id: u32, ext_id: bool, data: &[u8]) -> Result<Self, CanFrameError> {
-        if let Some(err) = CanFrameError::validate_id(id, ext_id) {
-            return Err(err);
-        }
+        CanFrameError::validate_id(id, ext_id)?;
 
         if data.len() > CAN_MAX_DLEN {
             return Err(CanFrameError::DataTooLong);
@@ -55,9 +53,7 @@ impl CanFrame {
     }
 
     pub(crate) fn new_rtr(id: u32, ext_id: bool, dlc: u8) -> Result<Self, CanFrameError> {
-        if let Some(err) = CanFrameError::validate_id(id, ext_id) {
-            return Err(err);
-        }
+        CanFrameError::validate_id(id, ext_id)?;
         let mut id = id;
         if ext_id {
             id |= CAN_EFF_FLAG;
@@ -74,7 +70,6 @@ impl CanFrame {
     }
 
     pub(crate) fn from_message(msg: Message) -> Result<Self, CanFrameError> {
-        msg.validate()?;
         let mut id = msg.id();
         if msg.ext_id() {
             id |= CAN_EFF_FLAG;
@@ -82,10 +77,10 @@ impl CanFrame {
         match msg {
             Message::Data(msg) => {
                 let mut can_data = [0_u8; CAN_MAX_DLEN];
-                can_data[0..msg.data.len()].copy_from_slice(&msg.data);
+                can_data[0..msg.data().len()].copy_from_slice(&msg.data());
                 Ok(CanFrame {
                     id,
-                    dlc: msg.data.len() as u8,
+                    dlc: msg.data().len() as u8,
                     pad: 0,
                     res0: 0,
                     res1: 0,
@@ -96,7 +91,7 @@ impl CanFrame {
                 id |= CAN_RTR_FLAG;
                 Ok(CanFrame {
                     id,
-                    dlc: msg.dlc,
+                    dlc: msg.dlc(),
                     pad: 0,
                     res0: 0,
                     res1: 0,
@@ -127,14 +122,9 @@ impl Into<Message> for CanFrame {
         };
         let rtr = self.id & CAN_RTR_FLAG > 0;
         if rtr {
-            Message::Remote(RemoteFrame {
-                id,
-                ext_id,
-                dlc: self.dlc,
-            })
+            Message::new_remote(id, ext_id, self.dlc).unwrap()
         } else {
-            let data = self.data[0..(self.dlc as usize)].to_vec();
-            Message::Data(DataFrame { id, ext_id, data })
+            Message::new_data(id, ext_id, &self.data[0..(self.dlc as usize)]).unwrap()
         }
     }
 }
