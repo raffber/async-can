@@ -3,6 +3,7 @@ use std::io;
 use std::mem::{MaybeUninit, size_of};
 use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::Arc;
 use std::task::Poll;
 
 use futures::future::poll_fn;
@@ -15,6 +16,7 @@ use mio::unix::{EventedFd, UnixReady};
 use tokio::io::{ErrorKind, PollEvented};
 
 use crate::{Message, Timestamp};
+use crate::Result;
 use crate::socketcan::sys::{AF_CAN, CanFrame, CanSocketAddr};
 
 mod sys;
@@ -163,5 +165,42 @@ impl Evented for EventedSocket {
 
     fn deregister(&self, poll: &mio::Poll) -> io::Result<()> {
         EventedFd(&self.0).deregister(poll)
+    }
+}
+
+#[derive(Clone)]
+pub struct Sender {
+    socket: Arc<CanSocket>,
+}
+
+pub struct Receiver {
+    socket: CanSocket,
+}
+
+impl Sender {
+    pub fn connect(ifname: String) -> Result<Self> {
+        let socket = CanSocket::bind(ifname)?;
+        Ok(Sender {
+            socket: Arc::new(socket),
+        })
+    }
+
+    pub async fn send(&self, msg: Message) -> Result<()> {
+        Ok(self.socket.send(msg).await?)
+    }
+}
+
+impl Receiver {
+    pub fn connect(ifname: String) -> Result<Self> {
+        let socket = CanSocket::bind(ifname)?;
+        Ok(Receiver { socket })
+    }
+
+    pub async fn recv(&self) -> Result<Message> {
+        Ok(self.socket.recv().await?)
+    }
+
+    pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
+        Ok(self.socket.recv_with_timestamp().await?)
     }
 }
