@@ -1,6 +1,6 @@
 use std::ffi::{c_void, CString};
 use std::io;
-use std::mem::{MaybeUninit, size_of};
+use std::mem::{size_of, MaybeUninit};
 use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
@@ -10,14 +10,14 @@ use futures::future::poll_fn;
 use futures::ready;
 use libc;
 use libc::sockaddr;
-use mio::{PollOpt, Ready, Token};
 use mio::event::Evented;
 use mio::unix::{EventedFd, UnixReady};
+use mio::{PollOpt, Ready, Token};
 use tokio::io::{ErrorKind, PollEvented};
 
-use crate::{Message, Timestamp};
+use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::Result;
-use crate::socketcan::sys::{AF_CAN, CanFrame, CanSocketAddr};
+use crate::{Message, Timestamp};
 
 mod sys;
 
@@ -118,7 +118,8 @@ impl CanSocket {
                 }
                 Ok(ret) => Poll::Ready(Ok(ret)),
             }
-        }).await
+        })
+        .await
     }
 
     pub async fn recv_with_timestamp(&self) -> io::Result<(Message, Timestamp)> {
@@ -148,7 +149,8 @@ impl CanSocket {
                 // successfully sent
                 Poll::Ready(Ok(()))
             }
-        }).await;
+        })
+        .await;
         Ok(ret?)
     }
 }

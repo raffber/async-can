@@ -1,7 +1,7 @@
 use std::os::raw::{c_int, c_short};
 
 use crate::Message::Remote;
-use crate::{Message, CanFrameError, CAN_EXT_ID_MASK, CAN_STD_ID_MASK};
+use crate::{CanFrameError, Message, CAN_EXT_ID_MASK, CAN_STD_ID_MASK};
 
 const CAN_EFF_FLAG: u32 = 0x80000000;
 const CAN_RTR_FLAG: u32 = 0x40000000;
@@ -99,9 +99,7 @@ impl CanFrame {
                 })
             }
         }
-
     }
-
 }
 
 #[repr(C)]
