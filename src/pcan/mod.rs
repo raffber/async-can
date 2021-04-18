@@ -41,13 +41,14 @@ pub struct Receiver {
 
 #[cfg(target_os = "linux")]
 mod waiter {
+    use crate::pcan::api::Handle;
     use std::thread;
     use std::time::Duration;
 
     pub(crate) struct Waiter;
 
     impl Waiter {
-        pub(crate) fn new() -> Self {
+        pub(crate) fn new(handle: Handle) -> Self {
             Self
         }
 
@@ -59,12 +60,10 @@ mod waiter {
 
 #[cfg(target_os = "windows")]
 mod waiter {
-    use std::{
-        ptr::{null, null_mut},
-        thread,
-        time::Duration,
-    };
+    use std::ptr::{null, null_mut};
 
+    use super::api::PCan;
+    use crate::pcan::api::Handle;
     use winapi::um::{handleapi::CloseHandle, winnt::HANDLE};
 
     pub(crate) struct Waiter {
@@ -72,7 +71,7 @@ mod waiter {
     }
 
     impl Waiter {
-        pub(crate) fn new() -> Self {
+        pub(crate) fn new(handle: Handle) -> Self {
             let event_handle = unsafe {
                 let handle = winapi::um::synchapi::CreateEventA(null_mut(), 0, 0, null());
                 if handle.is_null() {
@@ -80,11 +79,17 @@ mod waiter {
                 }
                 handle
             };
+            PCan::register_event(handle, event_handle);
             Waiter { event_handle }
         }
 
         pub(crate) fn wait_for_event(&self) {
-            thread::sleep(Duration::from_millis(2))
+            unsafe {
+                let err = winapi::um::synchapi::WaitForSingleObject(self.event_handle, 100);
+                if err == winapi::um::winbase::WAIT_FAILED {
+                    panic!("Waiting for event has failed!");
+                }
+            }
         }
     }
 
@@ -207,7 +212,7 @@ impl Receiver {
         let cancel = Arc::new(Mutex::new(false));
         let cancel_ret = cancel.clone();
         thread::spawn(move || {
-            let waiter = Waiter::new();
+            let waiter = Waiter::new(handle);
             loop {
                 {
                     let cancel = cancel.lock().unwrap();

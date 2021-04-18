@@ -8,8 +8,8 @@ extern crate lazy_static;
 use std::io;
 use std::result::Result as StdResult;
 
-use serde::{Deserialize, Deserializer, Serialize};
 use serde::de::Error as SerdeDeError;
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 pub const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
@@ -38,8 +38,10 @@ pub(crate) mod base {
 pub struct DataFrame(base::DataFrame);
 
 impl<'de> Deserialize<'de> for DataFrame {
-    fn deserialize<D>(deserializer: D) -> StdResult<Self, <D as Deserializer<'de>>::Error> where
-        D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> StdResult<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
         base::DataFrame::deserialize(deserializer).and_then(|x| {
             if CanFrameError::validate_id(x.id, x.ext_id).is_err() {
                 return Err(D::Error::custom("CAN Id is too long"));
@@ -54,24 +56,40 @@ impl<'de> Deserialize<'de> for DataFrame {
 }
 
 impl DataFrame {
-    pub fn id(&self) -> u32 { self.0.id }
-    pub fn ext_id(&self) -> bool { self.0.ext_id }
-    pub fn data(&self) -> &[u8] { &self.0.data }
-    pub fn dlc(&self) -> u8 { self.0.data.len() as u8 }
+    pub fn id(&self) -> u32 {
+        self.0.id
+    }
+    pub fn ext_id(&self) -> bool {
+        self.0.ext_id
+    }
+    pub fn data(&self) -> &[u8] {
+        &self.0.data
+    }
+    pub fn dlc(&self) -> u8 {
+        self.0.data.len() as u8
+    }
 }
 
 #[derive(Serialize, Clone)]
 pub struct RemoteFrame(base::RemoteFrame);
 
 impl RemoteFrame {
-    pub fn id(&self) -> u32 { self.0.id }
-    pub fn ext_id(&self) -> bool { self.0.ext_id }
-    pub fn dlc(&self) -> u8 { self.0.dlc }
+    pub fn id(&self) -> u32 {
+        self.0.id
+    }
+    pub fn ext_id(&self) -> bool {
+        self.0.ext_id
+    }
+    pub fn dlc(&self) -> u8 {
+        self.0.dlc
+    }
 }
 
 impl<'de> Deserialize<'de> for RemoteFrame {
-    fn deserialize<D>(deserializer: D) -> StdResult<Self, <D as Deserializer<'de>>::Error> where
-        D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> StdResult<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
         base::RemoteFrame::deserialize(deserializer).and_then(|x| {
             if CanFrameError::validate_id(x.id, x.ext_id).is_err() {
                 return Err(D::Error::custom("CAN Id is too long"));
@@ -146,7 +164,7 @@ impl From<CanFrameError> for crate::Error {
     fn from(x: CanFrameError) -> Self {
         match x {
             CanFrameError::IdTooLong => Error::IdTooLong,
-            CanFrameError::DataTooLong => Error::DataTooLong
+            CanFrameError::DataTooLong => Error::DataTooLong,
         }
     }
 }
@@ -214,4 +232,3 @@ mod pcan;
 
 #[cfg(target_os = "linux")]
 mod socketcan;
-
