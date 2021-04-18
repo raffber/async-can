@@ -8,12 +8,11 @@ use std::{
 };
 
 use super::sys;
-use crate::{DataFrame, Message, RemoteFrame, CanFrameError};
+use crate::{Message, CanFrameError};
 use dlopen::wrapper::{Container, WrapperApi};
 use lazy_static;
 use std::os::raw::c_char;
 use tempfile::NamedTempFile;
-use crate::{CAN_STD_ID_MASK, CAN_EXT_ID_MASK};
 
 #[cfg(target_os = "windows")]
 const PCAN_LIB: &'static [u8] = include_bytes!("../../lib/PCANBasic.dll");
@@ -40,43 +39,41 @@ pub struct PCanMessage {
 
 impl PCanMessage {
     pub fn from_message(msg: Message) -> Result<Self, CanFrameError>  {
-        if let Some(err) = CanFrameError::validate_id(msg.id(), msg.ext_id()) {
-            return Err(err);
-        }
+        CanFrameError::validate_id(msg.id(), msg.ext_id())?;
         match msg {
             Message::Data(frame) => {
-                if frame.data.len() > 8 {
+                if frame.data().len() > 8 {
                     return Err(CanFrameError::DataTooLong);
                 }
                 
                 let mut data = [0_u8; 8];
-                data[0 .. frame.data.len()].copy_from_slice(&frame.data);
-                let tp = if frame.ext_id {
+                data[0 .. frame.data().len()].copy_from_slice(&frame.data());
+                let tp = if frame.ext_id() {
                     sys::PCAN_MESSAGE_EXTENDED
                 } else {
                     sys::PCAN_MESSAGE_STANDARD
                 };
                 Ok(PCanMessage {
-                    id: frame.id,
+                    id: frame.id(),
                     tp: tp as u8,
-                    len: frame.data.len() as u8,
+                    len: frame.data().len() as u8,
                     data,
                 })
             }
             Message::Remote(frame) => {
-                if frame.dlc > 8 {
+                if frame.dlc() > 8 {
                     return Err(CanFrameError::DataTooLong);
                 }
-                let mut tp = if frame.ext_id {
+                let mut tp = if frame.ext_id() {
                     sys::PCAN_MESSAGE_EXTENDED
                 } else {
                     sys::PCAN_MESSAGE_STANDARD
                 };
                 tp |= sys::PCAN_MESSAGE_RTR;
                 Ok(PCanMessage {
-                    id: frame.id,
+                    id: frame.id(),
                     tp: tp as u8,
-                    len: frame.dlc,
+                    len: frame.dlc(),
                     data: [0_u8; 8],
                 })
             }
@@ -86,27 +83,10 @@ impl PCanMessage {
     pub fn into_message(self) -> crate::Result<Message> {
         let ext_id = (self.tp & sys::PCAN_MESSAGE_EXTENDED as u8) > 0;
         let rtr = self.tp & (sys::PCAN_MESSAGE_RTR as u8) > 0;
-        if self.len > 8 {
-            return Err(crate::Error::DataTooLong);
-        }
-        if self.id > CAN_EXT_ID_MASK && ext_id {
-            return Err(crate::Error::IdTooLong);
-        } else if self.id > CAN_STD_ID_MASK && !ext_id {
-            return Err(crate::Error::IdTooLong);
-        }
         if rtr {
-            Ok(Message::Remote(RemoteFrame {
-                id: self.id,
-                ext_id,
-                dlc: self.len,
-            }))
+            Ok(Message::new_remote(self.id, ext_id, self.len)?)
         } else {
-            let data = self.data[0..self.len as usize].to_vec();
-            Ok(Message::Data(DataFrame {
-                id: self.id,
-                ext_id,
-                data,
-            }))
+            Ok(Message::new_data(self.id, ext_id, &self.data[0..self.len as usize])?)
         }
     }
 }

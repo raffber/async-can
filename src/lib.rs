@@ -6,44 +6,88 @@ extern crate dlopen_derive;
 extern crate lazy_static;
 
 use std::io;
+use std::result::Result as StdResult;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde::de::Error as SerdeDeError;
 use thiserror::Error;
-
-// #[cfg(target_os = "linux")]
-// pub use linux_socketcan::{Sender, Receiver};
-
-pub use pcan::{Sender, Receiver};
 
 pub const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
 pub const CAN_STD_ID_MASK: u32 = 0x7FF;
 pub const CAN_MAX_DLC: usize = 8;
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct DataFrame {
-    id: u32,
-    ext_id: bool,
-    data: Vec<u8>,
+pub(crate) mod base {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Deserialize, Serialize, Clone)]
+    pub(crate) struct DataFrame {
+        pub(crate) id: u32,
+        pub(crate) ext_id: bool,
+        pub(crate) data: Vec<u8>,
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    pub(crate) struct RemoteFrame {
+        pub(crate) id: u32,
+        pub(crate) ext_id: bool,
+        pub(crate) dlc: u8,
+    }
+}
+
+#[derive(Serialize, Clone)]
+pub struct DataFrame(base::DataFrame);
+
+impl<'de> Deserialize<'de> for DataFrame {
+    fn deserialize<D>(deserializer: D) -> StdResult<Self, <D as Deserializer<'de>>::Error> where
+        D: Deserializer<'de> {
+        base::DataFrame::deserialize(deserializer).and_then(|x| {
+            if CanFrameError::validate_id(x.id, x.ext_id).is_err() {
+                return Err(D::Error::custom("CAN Id is too long"));
+            }
+            if x.data.len() > 8 {
+                Err(D::Error::custom("Data field is too long"))
+            } else {
+                Ok(DataFrame(x))
+            }
+        })
+    }
 }
 
 impl DataFrame {
-    pub fn id(&self) -> u32 { self.id }
-    pub fn ext_id(&self) -> bool { self.ext_id }
-    pub fn data(&self) -> &[u8] { &self.data }
-    pub fn dlc(&self) -> u8 { self.data.len() as u8 }
+    pub fn id(&self) -> u32 { self.0.id }
+    pub fn ext_id(&self) -> bool { self.0.ext_id }
+    pub fn data(&self) -> &[u8] { &self.0.data }
+    pub fn dlc(&self) -> u8 { self.0.data.len() as u8 }
+}
+
+#[derive(Serialize, Clone)]
+pub struct RemoteFrame(base::RemoteFrame);
+
+impl RemoteFrame {
+    pub fn id(&self) -> u32 { self.0.id }
+    pub fn ext_id(&self) -> bool { self.0.ext_id }
+    pub fn dlc(&self) -> u8 { self.0.dlc }
+}
+
+impl<'de> Deserialize<'de> for RemoteFrame {
+    fn deserialize<D>(deserializer: D) -> StdResult<Self, <D as Deserializer<'de>>::Error> where
+        D: Deserializer<'de> {
+        base::RemoteFrame::deserialize(deserializer).and_then(|x| {
+            if CanFrameError::validate_id(x.id, x.ext_id).is_err() {
+                return Err(D::Error::custom("CAN Id is too long"));
+            }
+            if x.dlc > 8 {
+                Err(D::Error::custom("DLC field is too long"))
+            } else {
+                Ok(RemoteFrame(x))
+            }
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct RemoteFrame {
-    id: u32,
-    ext_id: bool,
-    dlc: u8,
-}
-
-impl RemoteFrame {
-    pub fn id(&self) -> u32 { self.id }
-    pub fn ext_id(&self) -> bool { self.ext_id }
-    pub fn dlc(&self) -> u8 { self.dlc }
+pub struct Timestamp {
+    pub micros: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -52,81 +96,47 @@ pub enum Message {
     Remote(RemoteFrame),
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Timestamp {
-    pub micros: u64,
-}
-
 impl Message {
-    pub fn new_data(id: u32, ext_id: bool, data: &[u8]) -> Option<Message> {
-        if ext_id && id > CAN_EXT_ID_MASK {
-            return None;
-        } else if !ext_id && id > CAN_STD_ID_MASK {
-            return None;
-        }
+    pub fn new_data(id: u32, ext_id: bool, data: &[u8]) -> StdResult<Message, CanFrameError> {
+        CanFrameError::validate_id(id, ext_id)?;
         if data.len() > CAN_MAX_DLC {
-            return None;
+            return Err(CanFrameError::DataTooLong);
         }
-        Some(Message::Data(DataFrame {
+        Ok(Message::Data(DataFrame(base::DataFrame {
             id,
             ext_id,
             data: data.to_vec(),
-        }))
+        })))
     }
 
-    pub fn new_remote(id: u32, ext_id: bool, dlc: u8) -> Option<Message> {
-        if ext_id && id > CAN_EXT_ID_MASK {
-            return None;
-        } else if !ext_id && id > CAN_STD_ID_MASK {
-            return None;
-        }
+    pub fn new_remote(id: u32, ext_id: bool, dlc: u8) -> StdResult<Message, CanFrameError> {
+        CanFrameError::validate_id(id, ext_id)?;
         if dlc as usize > CAN_MAX_DLC {
-            return None;
+            return Err(CanFrameError::DataTooLong);
         }
-        Some(Message::Remote(RemoteFrame {
+        Ok(Message::Remote(RemoteFrame(base::RemoteFrame {
             id,
             ext_id,
             dlc,
-        }))
+        })))
     }
 
     pub fn id(&self) -> u32 {
         match self {
-            Message::Data(x) => x.id,
-            Message::Remote(x) => x.id,
+            Message::Data(x) => x.0.id,
+            Message::Remote(x) => x.0.id,
         }
     }
 
     pub fn ext_id(&self) -> bool {
         match self {
-            Message::Data(x) => x.ext_id,
-            Message::Remote(x) => x.ext_id,
-        }
-    }
-
-    pub fn validate(&self) -> std::result::Result<(), CanFrameError> {
-        if let Some(err) = CanFrameError::validate_id(self.id(), self.ext_id()) {
-            return Err(err);
-        }
-        match self {
-            Message::Data(frame) => {
-                if frame.data.len() > 8 {
-                    Err(CanFrameError::DataTooLong)
-                } else {
-                    Ok(())
-                }
-            }
-            Message::Remote(frame) => {
-                if frame.dlc > 8 {
-                    Err(CanFrameError::DataTooLong)
-                } else {
-                    Ok(())
-                }
-            }
+            Message::Data(x) => x.0.ext_id,
+            Message::Remote(x) => x.0.ext_id,
         }
     }
 }
 
+#[derive(Debug)]
 pub enum CanFrameError {
     IdTooLong,
     DataTooLong,
@@ -142,17 +152,17 @@ impl From<CanFrameError> for crate::Error {
 }
 
 impl CanFrameError {
-    fn validate_id(id: u32, ext_id: bool) -> Option<CanFrameError> {
+    fn validate_id(id: u32, ext_id: bool) -> StdResult<(), CanFrameError> {
         if ext_id {
             if id > CAN_EXT_ID_MASK {
-                return Some(CanFrameError::IdTooLong);
+                return Err(CanFrameError::IdTooLong);
             }
         } else {
             if id > CAN_STD_ID_MASK {
-                return Some(CanFrameError::IdTooLong);
+                return Err(CanFrameError::IdTooLong);
             }
         }
-        None
+        Ok(())
     }
 }
 
