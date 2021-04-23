@@ -235,14 +235,16 @@ impl PCan {
 
     pub fn register_event(channel: Handle, event: *const c_void) {
         unsafe {
+            let event_int = event as usize;
+            let event_ptr = &event_int as *const usize as *const c_void;
             let status = PCAN.api.CAN_SetValue(
                 channel,
                 sys::PCAN_RECEIVE_EVENT as u8,
-                event,
+                event_ptr,
                 size_of::<*const c_void>() as u32,
             );
             if Error::result(status).is_err() {
-                panic!("Cannot register event in driver.")
+                panic!(format!("Cannot register event in driver: {}", status))
             }
         }
     }

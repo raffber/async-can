@@ -228,7 +228,7 @@ impl From<io::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-mod pcan;
+pub mod pcan;
 
 #[cfg(target_os = "linux")]
-mod socketcan;
+pub mod socketcan;
