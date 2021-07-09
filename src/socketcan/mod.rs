@@ -31,6 +31,14 @@ pub struct CanSocket {
     inner: PollEvented<EventedSocket>,
 }
 
+impl Drop for CanSocket {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.as_raw_fd());
+        }
+    }
+}
+
 impl AsRawFd for CanSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.inner.get_ref().as_raw_fd()
