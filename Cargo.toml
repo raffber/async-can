@@ -14,13 +14,12 @@ lazy_static = "1.4.0"
 dlopen = "0.1.8"
 dlopen_derive = "0.1.4"
 tempfile = "3.1.0"
-tokio = {version = "0.2.23", features = ["sync", "rt-core", "blocking", "time"]}
+tokio = {version = "^1", features = ["sync", "time", "rt", "net"]}
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.80"
 mio = "0.6"
 futures = "0.3"
-tokio = {version = "0.2.23", features = ["io-driver"]}
 
 [target.'cfg(windows)'.dependencies]
 winapi= { version = "0.3.9", features = ["synchapi"]}

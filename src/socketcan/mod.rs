@@ -11,9 +11,10 @@ use futures::ready;
 use libc;
 use libc::sockaddr;
 use mio::event::Evented;
-use mio::unix::{EventedFd, UnixReady};
+use mio::unix::EventedFd;
 use mio::{PollOpt, Ready, Token};
-use tokio::io::{ErrorKind, PollEvented};
+use tokio::io::ErrorKind;
+use tokio::io::unix::AsyncFd;
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::Result;
@@ -30,7 +31,7 @@ impl AsRawFd for EventedSocket {
 struct EventedSocket(RawFd);
 
 pub struct CanSocket {
-    inner: PollEvented<EventedSocket>,
+    inner: AsyncFd<EventedSocket>,
 }
 
 impl Drop for CanSocket {
@@ -83,7 +84,7 @@ impl CanSocket {
             return Err(io::Error::last_os_error());
         }
 
-        let inner = PollEvented::new(EventedSocket(fd))?;
+        let inner = AsyncFd::new(EventedSocket(fd))?;
         Ok(Self { inner })
     }
 
@@ -104,13 +105,11 @@ impl CanSocket {
     }
 
     pub async fn recv(&self) -> io::Result<Message> {
-        let ready = Ready::readable() | Ready::from(UnixReady::error());
         poll_fn(|cx| {
-            ready!(self.inner.poll_read_ready(cx, ready))?;
+            let _guard = ready!(self.inner.poll_read_ready(cx))?;
             match self.read_from_fd() {
                 Err(e) => {
                     if e.kind() == ErrorKind::WouldBlock {
-                        self.inner.clear_read_ready(cx, ready)?;
                         Poll::Pending
                     } else {
                         Poll::Ready(Err(e))
@@ -125,14 +124,13 @@ impl CanSocket {
     pub async fn send(&self, msg: Message) -> crate::Result<()> {
         let frame: CanFrame = CanFrame::from_message(msg)?;
         let ret = poll_fn(|cx| {
-            ready!(self.inner.poll_write_ready(cx))?;
+            let _guard = ready!(self.inner.poll_write_ready(cx))?;
             let frame = &frame as *const CanFrame as *const c_void;
             let written = unsafe { libc::write(self.as_raw_fd(), frame, size_of::<CanFrame>()) };
             if written as usize != size_of::<CanFrame>() {
                 let err = io::Error::last_os_error();
                 if err.kind() == ErrorKind::WouldBlock {
                     // would block so not yet ready
-                    self.inner.clear_write_ready(cx)?;
                     Poll::Pending
                 } else if let Some(105) = err.raw_os_error() {
                     self.inner.clear_write_ready(cx)?;
@@ -210,6 +208,6 @@ impl Receiver {
     }
 
     pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
-        Ok(self.socket.recv_with_timestamp().await?)
+        todo!()
     }
 }
