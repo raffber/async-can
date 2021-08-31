@@ -133,7 +133,6 @@ impl CanSocket {
                     // would block so not yet ready
                     Poll::Pending
                 } else if let Some(105) = err.raw_os_error() {
-                    self.inner.clear_write_ready(cx)?;
                     Poll::Pending
                 } else {
                     // an actual error

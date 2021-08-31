@@ -244,7 +244,7 @@ impl PCan {
                 size_of::<*const c_void>() as u32,
             );
             if Error::result(status).is_err() {
-                panic!(format!("Cannot register event in driver: {}", status))
+                panic!("Cannot register event in driver: {}", status)
             }
         }
     }
