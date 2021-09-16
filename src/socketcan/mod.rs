@@ -10,28 +10,20 @@ use futures::future::poll_fn;
 use futures::ready;
 use libc;
 use libc::sockaddr;
-use mio::event::Evented;
-use mio::unix::EventedFd;
-use mio::{PollOpt, Ready, Token};
-use tokio::io::ErrorKind;
+use mio::event::Source;
+use mio::unix::SourceFd;
 use tokio::io::unix::AsyncFd;
+use tokio::io::ErrorKind;
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::Result;
 use crate::{Message, Timestamp};
+use mio::{Interest, Registry, Token};
 
 mod sys;
 
-impl AsRawFd for EventedSocket {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0
-    }
-}
-
-struct EventedSocket(RawFd);
-
 pub struct CanSocket {
-    inner: AsyncFd<EventedSocket>,
+    inner: AsyncFd<RawFd>,
 }
 
 impl Drop for CanSocket {
@@ -84,39 +76,19 @@ impl CanSocket {
             return Err(io::Error::last_os_error());
         }
 
-        let inner = AsyncFd::new(EventedSocket(fd))?;
+        let inner = AsyncFd::new(fd)?;
         Ok(Self { inner })
-    }
-
-    fn read_from_fd(&self) -> io::Result<Message> {
-        let mut frame = MaybeUninit::<CanFrame>::uninit();
-        let (frame, size) = unsafe {
-            let size = libc::read(
-                self.as_raw_fd(),
-                frame.as_mut_ptr() as *mut c_void,
-                size_of::<CanFrame>(),
-            );
-            (frame.assume_init(), size as usize)
-        };
-        if size != size_of::<CanFrame>() {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(frame.into())
     }
 
     pub async fn recv(&self) -> io::Result<Message> {
         poll_fn(|cx| {
-            let _guard = ready!(self.inner.poll_read_ready(cx))?;
-            match self.read_from_fd() {
-                Err(e) => {
-                    if e.kind() == ErrorKind::WouldBlock {
-                        Poll::Pending
-                    } else {
-                        Poll::Ready(Err(e))
-                    }
-                }
-                Ok(ret) => Poll::Ready(Ok(ret)),
-            }
+            let mut guard = ready!(self.inner.poll_read_ready(cx))?;
+            let ret = match guard.try_io(|fd| read_from_fd(fd.as_raw_fd())) {
+                Ok(result) => Poll::Ready(result),
+                Err(_would_block) => Poll::Pending,
+            };
+            guard.clear_ready();
+            ret
         })
         .await
     }
@@ -148,29 +120,39 @@ impl CanSocket {
     }
 }
 
-impl Evented for EventedSocket {
+fn read_from_fd(fd: RawFd) -> io::Result<Message> {
+    let mut frame = MaybeUninit::<CanFrame>::uninit();
+    let (frame, size) = unsafe {
+        let size = libc::read(fd, frame.as_mut_ptr() as *mut c_void, size_of::<CanFrame>());
+        (frame.assume_init(), size as usize)
+    };
+    if size != size_of::<CanFrame>() {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(frame.into())
+}
+
+impl Source for CanSocket {
     fn register(
-        &self,
-        poll: &mio::Poll,
+        &mut self,
+        registry: &Registry,
         token: Token,
-        interest: Ready,
-        opts: PollOpt,
+        interests: Interest,
     ) -> io::Result<()> {
-        EventedFd(&self.0).register(poll, token, interest, opts)
+        SourceFd(&self.as_raw_fd()).register(registry, token, interests)
     }
 
     fn reregister(
-        &self,
-        poll: &mio::Poll,
+        &mut self,
+        registry: &Registry,
         token: Token,
-        interest: Ready,
-        opts: PollOpt,
+        interests: Interest,
     ) -> io::Result<()> {
-        EventedFd(&self.0).reregister(poll, token, interest, opts)
+        SourceFd(&self.as_raw_fd()).reregister(registry, token, interests)
     }
 
-    fn deregister(&self, poll: &mio::Poll) -> io::Result<()> {
-        EventedFd(&self.0).deregister(poll)
+    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
+        SourceFd(&self.as_raw_fd()).deregister(registry)
     }
 }
 

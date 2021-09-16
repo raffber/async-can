@@ -231,10 +231,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub mod pcan;
 
 #[cfg(target_os = "windows")]
-pub use pcan::{Sender, Receiver};
+pub use pcan::{Receiver, Sender};
 
 #[cfg(target_os = "linux")]
 pub mod socketcan;
 
 #[cfg(target_os = "linux")]
-pub use socketcan::{Sender, Receiver};
+pub use socketcan::{Receiver, Sender};
