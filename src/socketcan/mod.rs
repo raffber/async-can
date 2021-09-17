@@ -4,7 +4,7 @@ use std::mem::{size_of, MaybeUninit};
 use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
-use std::task::Poll;
+use std::task::{Poll, Context};
 
 use futures::future::poll_fn;
 use futures::ready;
@@ -13,7 +13,6 @@ use libc::sockaddr;
 use mio::event::Source;
 use mio::unix::SourceFd;
 use tokio::io::unix::AsyncFd;
-use tokio::io::ErrorKind;
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::Result;
@@ -81,43 +80,52 @@ impl CanSocket {
     }
 
     pub async fn recv(&self) -> io::Result<Message> {
-        poll_fn(|cx| {
-            let mut guard = ready!(self.inner.poll_read_ready(cx))?;
-            let ret = match guard.try_io(|fd| read_from_fd(fd.as_raw_fd())) {
-                Ok(result) => Poll::Ready(result),
-                Err(_would_block) => Poll::Pending,
-            };
-            guard.clear_ready();
-            ret
-        })
-        .await
+        poll_fn(|cx|  self.poll_read(cx) ).await
+    }
+
+    fn poll_read(&self, cx: &mut Context) -> Poll<io::Result<Message>> {
+        let mut guard = ready!(self.inner.poll_read_ready(cx))?;
+        match guard.try_io(|fd| read_from_fd(fd.as_raw_fd())) {
+            Ok(result) => return Poll::Ready(result),
+            Err(_would_block) => (),
+        };
+        let mut guard = ready!(self.inner.poll_read_ready(cx))?;
+        match guard.try_io(|fd| read_from_fd(fd.as_raw_fd())) {
+            Ok(result) => Poll::Ready(result),
+            Err(_would_block) => Poll::Pending,
+        }
     }
 
     pub async fn send(&self, msg: Message) -> crate::Result<()> {
         let frame: CanFrame = CanFrame::from_message(msg)?;
-        let ret = poll_fn(|cx| {
-            let _guard = ready!(self.inner.poll_write_ready(cx))?;
-            let frame = &frame as *const CanFrame as *const c_void;
-            let written = unsafe { libc::write(self.as_raw_fd(), frame, size_of::<CanFrame>()) };
-            if written as usize != size_of::<CanFrame>() {
-                let err = io::Error::last_os_error();
-                if err.kind() == ErrorKind::WouldBlock {
-                    // would block so not yet ready
-                    Poll::Pending
-                } else if let Some(105) = err.raw_os_error() {
-                    Poll::Pending
-                } else {
-                    // an actual error
-                    Poll::Ready(Err(err))
-                }
-            } else {
-                // successfully sent
-                Poll::Ready(Ok(()))
-            }
-        })
-        .await;
+        let ret = poll_fn(|cx| self.poll_write(cx, &frame)).await;
         Ok(ret?)
     }
+
+    fn poll_write(&self, cx: &mut Context<'_>, frame: &CanFrame) -> Poll<io::Result<()>> {
+        let mut guard = ready!(self.inner.poll_write_ready(cx))?;
+        match guard.try_io(|fd| write_to_fd(fd.as_raw_fd(), frame)) {
+            Ok(result) => return Poll::Ready(result),
+            Err(_would_block) => (),
+        }
+        let mut guard = ready!(self.inner.poll_write_ready(cx))?;
+        match guard.try_io(|fd| write_to_fd(fd.as_raw_fd(), frame)) {
+            Ok(result) => Poll::Ready(result),
+            Err(_would_block) => Poll::Pending,
+        }
+    }
+}
+
+fn write_to_fd(fd: RawFd, frame: &CanFrame) -> io::Result<()> {
+    let frame = frame as *const CanFrame as *const c_void;
+    let written = unsafe { libc::write(fd, frame, size_of::<CanFrame>()) };
+    if written as usize != size_of::<CanFrame>() {
+        Err(io::Error::last_os_error())
+    } else {
+        // successfully sent
+        Ok(())
+    }
+
 }
 
 fn read_from_fd(fd: RawFd) -> io::Result<Message> {
