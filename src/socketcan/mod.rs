@@ -84,15 +84,12 @@ impl CanSocket {
     }
 
     fn poll_read(&self, cx: &mut Context) -> Poll<io::Result<Message>> {
-        let mut guard = ready!(self.inner.poll_read_ready(cx))?;
-        match guard.try_io(|fd| read_from_fd(fd.as_raw_fd())) {
-            Ok(result) => return Poll::Ready(result),
-            Err(_would_block) => (),
-        };
-        let mut guard = ready!(self.inner.poll_read_ready(cx))?;
-        match guard.try_io(|fd| read_from_fd(fd.as_raw_fd())) {
-            Ok(result) => Poll::Ready(result),
-            Err(_would_block) => Poll::Pending,
+        loop {
+            let mut guard = ready!(self.inner.poll_read_ready(cx))?;
+            match guard.try_io(|fd| read_from_fd(fd.as_raw_fd())) {
+                Ok(result) => return Poll::Ready(result),
+                Err(_would_block) => continue,
+            }
         }
     }
 
@@ -103,15 +100,12 @@ impl CanSocket {
     }
 
     fn poll_write(&self, cx: &mut Context<'_>, frame: &CanFrame) -> Poll<io::Result<()>> {
-        let mut guard = ready!(self.inner.poll_write_ready(cx))?;
-        match guard.try_io(|fd| write_to_fd(fd.as_raw_fd(), frame)) {
-            Ok(result) => return Poll::Ready(result),
-            Err(_would_block) => (),
-        }
-        let mut guard = ready!(self.inner.poll_write_ready(cx))?;
-        match guard.try_io(|fd| write_to_fd(fd.as_raw_fd(), frame)) {
-            Ok(result) => Poll::Ready(result),
-            Err(_would_block) => Poll::Pending,
+        loop {
+            let mut guard = ready!(self.inner.poll_write_ready(cx))?;
+            match guard.try_io(|fd| write_to_fd(fd.as_raw_fd(), frame)) {
+                Ok(result) => return Poll::Ready(result),
+                Err(_would_block) => continue,
+            }
         }
     }
 }
