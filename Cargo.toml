@@ -17,7 +17,7 @@ tempfile = "3.1.0"
 tokio = {version = "^1", features = ["sync", "time", "rt", "net"]}
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2.80"
+libc = "0.2"
 mio = "0.7"
 futures = "0.3"
 
