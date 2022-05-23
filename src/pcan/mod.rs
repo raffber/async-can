@@ -9,29 +9,10 @@ use std::{sync::Arc, thread};
 use tokio::sync::mpsc;
 use tokio::task;
 
+use self::api::get_baud;
+
 const IOPORT: u32 = 0x02A0;
 const INTERRUPT: u16 = 11;
-
-fn get_baud(bitrate: u32) -> Result<u16> {
-    let ret = match bitrate {
-        5000 => sys::PCAN_BAUD_5K,
-        10000 => sys::PCAN_BAUD_10K,
-        20000 => sys::PCAN_BAUD_20K,
-        33000 => sys::PCAN_BAUD_33K,
-        47000 => sys::PCAN_BAUD_47K,
-        50000 => sys::PCAN_BAUD_50K,
-        83000 => sys::PCAN_BAUD_83K,
-        95000 => sys::PCAN_BAUD_95K,
-        100000 => sys::PCAN_BAUD_100K,
-        125000 => sys::PCAN_BAUD_125K,
-        250000 => sys::PCAN_BAUD_250K,
-        500000 => sys::PCAN_BAUD_500K,
-        800000 => sys::PCAN_BAUD_800K,
-        1000000 => sys::PCAN_BAUD_1M,
-        _ => return Err(Error::InvalidBitRate),
-    };
-    Ok(ret as u16)
-}
 
 pub struct Receiver {
     handle: Handle,
@@ -72,7 +53,6 @@ mod waiter {
 
     impl Waiter {
         pub(crate) fn new(handle: Handle) -> Self {
-            log::debug!("New Waiter!!");
             let event_handle = unsafe {
                 let handle = winapi::um::synchapi::CreateEventA(null_mut(), 0, 0, null());
                 if handle.is_null() {
@@ -81,19 +61,17 @@ mod waiter {
                 handle
             };
             PCan::register_event(handle, event_handle);
-            log::debug!("Event registered");
+            log::debug!("Waiter Event registered");
             Waiter { event_handle }
         }
 
         pub(crate) fn wait_for_event(&self) {
-            log::debug!("Start waiting....");
             unsafe {
                 let err = winapi::um::synchapi::WaitForSingleObject(self.event_handle, 100);
                 if err == winapi::um::winbase::WAIT_FAILED {
                     panic!("Waiting for event has failed!");
                 }
             }
-            log::debug!("Waiting done...");
         }
     }
 
@@ -108,12 +86,12 @@ mod waiter {
 
 type Waiter = waiter::Waiter;
 
-#[derive(Clone)]
 pub struct Sender {
     handle: Handle,
 }
 
 fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
+    let _ = get_baud(bitrate)?;
     let ifname = ifname.to_lowercase();
     let handle = if let Some(usb_num) = ifname.strip_prefix("usb") {
         let num: u16 = usb_num
@@ -126,14 +104,8 @@ fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
     } else {
         return Err(Error::InvalidInterfaceAddress);
     };
-    let baud = get_baud(bitrate)?;
-    if let Err(err) = PCan::initalize(
-        handle,
-        baud as u16,
-        sys::PCAN_TYPE_ISA as u8,
-        IOPORT,
-        INTERRUPT,
-    ) {
+    if let Err(err) = PCan::initalize(handle, bitrate, sys::PCAN_TYPE_ISA as u8, IOPORT, INTERRUPT)
+    {
         return Err(Error::PCanInitFailed(err.code, err.description()));
     }
     Ok(handle)
@@ -164,6 +136,22 @@ impl Sender {
                     }
                 }
                 Ok(x) => Ok(x),
+            }
+        })
+        .await
+        .unwrap()
+    }
+
+    pub async fn close(self) -> Result<()> {
+        let handle = self.handle;
+        task::spawn_blocking(move || match PCan::uninitialize(handle) {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                if err.code == sys::PCAN_ERROR_INITIALIZE {
+                    Ok(())
+                } else {
+                    Err(crate::Error::PCanInitFailed(err.code, err.description()))
+                }                
             }
         })
         .await
@@ -223,7 +211,6 @@ impl Receiver {
                         break;
                     }
                 }
-                log::debug!("Receive iteration starting...");
                 if let Some(ret) = Self::receive_iteration(handle, &waiter) {
                     if tx.send(ret).is_err() {
                         break;
@@ -243,6 +230,14 @@ impl Receiver {
             Some(msg) => msg,
             None => Err(crate::Error::InvalidBitRate),
         }
+    }
+
+    pub async fn close(mut self) -> Result<()> {
+        if let Ok(mut cancel) = self.cancel.lock() {
+            *cancel = true;
+        }
+        while let Some(_) = self.rx.recv().await {}
+        Ok(())
     }
 }
 

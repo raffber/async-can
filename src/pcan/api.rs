@@ -29,6 +29,28 @@ pub type HwType = u8;
 pub type Mode = u8;
 pub type Baudrate = u16;
 
+
+pub fn get_baud(bitrate: u32) -> crate::Result<u16> {
+    let ret = match bitrate {
+        5000 => sys::PCAN_BAUD_5K,
+        10000 => sys::PCAN_BAUD_10K,
+        20000 => sys::PCAN_BAUD_20K,
+        33000 => sys::PCAN_BAUD_33K,
+        47000 => sys::PCAN_BAUD_47K,
+        50000 => sys::PCAN_BAUD_50K,
+        83000 => sys::PCAN_BAUD_83K,
+        95000 => sys::PCAN_BAUD_95K,
+        100000 => sys::PCAN_BAUD_100K,
+        125000 => sys::PCAN_BAUD_125K,
+        250000 => sys::PCAN_BAUD_250K,
+        500000 => sys::PCAN_BAUD_500K,
+        800000 => sys::PCAN_BAUD_800K,
+        1000000 => sys::PCAN_BAUD_1M,
+        _ => return Err(crate::Error::InvalidBitRate),
+    };
+    Ok(ret as u16)
+}
+
 #[repr(C)]
 pub struct PCanMessage {
     pub id: u32,
@@ -123,6 +145,8 @@ struct Api {
     CAN_GetErrorText: unsafe extern "C" fn(error: Status, lang: u16, buf: *const c_char),
     CAN_SetValue:
         unsafe extern "C" fn(channel: Handle, param: u8, buf: *const c_void, len: u32) -> Status,
+    CAN_GetValue:
+        unsafe extern "C" fn(channel: Handle, param: u8, buf: *mut c_void, len: u32) -> Status,
 }
 
 lazy_static! {
@@ -204,13 +228,39 @@ impl PCan {
         }
     }
 
+    pub fn uninitialize(channel: Handle) -> Result<(), Error> {
+        let status = unsafe { PCAN.api.CAN_Uninitialize(channel) };
+        Error::result(status)
+    }
+
     pub fn initalize(
         channel: Handle,
-        baud: Baudrate,
+        bitrate: u32,
         hw_type: HwType,
         port: u32,
         interrupt: u16,
     ) -> Result<(), Error> {
+        // already checked in caller
+        let baud = get_baud(bitrate).unwrap();
+
+        let mut current_speed: u32 = 0;
+        let status = {           
+            let ptr =  &mut current_speed as *mut u32 as *mut c_void;
+            unsafe { PCAN.api.CAN_GetValue(channel, sys::PCAN_BUSSPEED_NOMINAL as u8,ptr, 4) }
+        };
+        // if status == sys::PCAN_ERROR_INITIALIZE all is good and we can just initialize the channel
+        // if status == 0 means the channel is already initialized and we have to check bitrate
+        if status == 0 {
+            // implies channel initialized            
+            if current_speed != bitrate {
+                let status = unsafe { PCAN.api.CAN_Uninitialize(channel) };
+                Error::result(status)?;
+            }
+        }        
+
+        if status != 0 {
+            log::debug!("Getting current bus speed failed: {}", Self::describe_status(status));
+        }
         let status = unsafe {
             PCAN.api
                 .CAN_Initialize(channel, baud, hw_type, port, interrupt)
@@ -247,11 +297,6 @@ impl PCan {
                 panic!("Cannot register event in driver: {}", status)
             }
         }
-    }
-
-    pub fn uninitialize(channel: Handle) -> Result<(), Error> {
-        let status = unsafe { PCAN.api.CAN_Uninitialize(channel) };
-        Error::result(status)
     }
 
     pub fn reset(channel: Handle) -> Result<(), Error> {
