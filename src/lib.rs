@@ -56,6 +56,14 @@ impl<'de> Deserialize<'de> for DataFrame {
 }
 
 impl DataFrame {
+    pub fn new(id: u32, ext_id: bool, data: Vec<u8>) -> StdResult<Self, CanFrameError> {
+        CanFrameError::validate_id(id, ext_id)?;
+        if data.len() > CAN_MAX_DLC {
+            return Err(CanFrameError::DataTooLong);
+        }
+        Ok(Self(base::DataFrame { id, ext_id, data }))
+    }
+
     pub fn id(&self) -> u32 {
         self.0.id
     }
@@ -74,6 +82,14 @@ impl DataFrame {
 pub struct RemoteFrame(base::RemoteFrame);
 
 impl RemoteFrame {
+    pub fn new(id: u32, ext_id: bool, dlc: u8) -> StdResult<Self, CanFrameError> {
+        CanFrameError::validate_id(id, ext_id)?;
+        if dlc as usize > CAN_MAX_DLC {
+            return Err(CanFrameError::DataTooLong);
+        }
+        Ok(Self(base::RemoteFrame { id, ext_id, dlc }))
+    }
+
     pub fn id(&self) -> u32 {
         self.0.id
     }
