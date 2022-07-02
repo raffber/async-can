@@ -7,7 +7,7 @@ use std::{
     mem::{size_of, MaybeUninit},
 };
 
-use super::sys;
+use super::{sys, DeviceInfo};
 use crate::{CanFrameError, Message};
 use dlopen::wrapper::{Container, WrapperApi};
 use lazy_static;
@@ -28,7 +28,6 @@ pub type MessageType = u8;
 pub type HwType = u8;
 pub type Mode = u8;
 pub type Baudrate = u16;
-
 
 pub fn get_baud(bitrate: u32) -> crate::Result<u16> {
     let ret = match bitrate {
@@ -244,22 +243,28 @@ impl PCan {
         let baud = get_baud(bitrate).unwrap();
 
         let mut current_speed: u32 = 0;
-        let status = {           
-            let ptr =  &mut current_speed as *mut u32 as *mut c_void;
-            unsafe { PCAN.api.CAN_GetValue(channel, sys::PCAN_BUSSPEED_NOMINAL as u8,ptr, 4) }
+        let status = {
+            let ptr = &mut current_speed as *mut u32 as *mut c_void;
+            unsafe {
+                PCAN.api
+                    .CAN_GetValue(channel, sys::PCAN_BUSSPEED_NOMINAL as u8, ptr, 4)
+            }
         };
         // if status == sys::PCAN_ERROR_INITIALIZE all is good and we can just initialize the channel
         // if status == 0 means the channel is already initialized and we have to check bitrate
         if status == 0 {
-            // implies channel initialized            
+            // implies channel initialized
             if current_speed != bitrate {
                 let status = unsafe { PCAN.api.CAN_Uninitialize(channel) };
                 Error::result(status)?;
             }
-        }        
+        }
 
         if status != 0 {
-            log::debug!("Getting current bus speed failed: {}", Self::describe_status(status));
+            log::debug!(
+                "Getting current bus speed failed: {}",
+                Self::describe_status(status)
+            );
         }
         let status = unsafe {
             PCAN.api
@@ -331,6 +336,39 @@ impl PCan {
     pub fn write(channel: Handle, msg: PCanMessage) -> Result<(), Error> {
         let status = unsafe { PCAN.api.CAN_Write(channel, &msg as *const PCanMessage) };
         Error::result(status)
+    }
+
+    pub fn list_devices() -> Result<Vec<DeviceInfo>, Error> {
+        let infos = unsafe {
+            let mut channel_count = 0_u32;
+            let status = PCAN.api.CAN_GetValue(
+                sys::PCAN_NONEBUS as u16,
+                sys::PCAN_ATTACHED_CHANNELS_COUNT as u8,
+                &mut channel_count as *mut u32 as *mut c_void,
+                4,
+            );
+            Error::result(status)?;
+
+            let channel_info = MaybeUninit::<sys::TPCANChannelInformation>::uninit().assume_init();
+            let mut infos = vec![channel_info; channel_count as usize];
+            let ptr = infos.as_mut_ptr() as *mut c_void;
+            let len = (channel_count as usize * std::mem::size_of::<sys::TPCANChannelInformation>())
+                as u32;
+            let status = PCAN.api.CAN_GetValue(
+                sys::PCAN_NONEBUS as u16,
+                sys::PCAN_ATTACHED_CHANNELS as u8,
+                ptr,
+                len,
+            );
+            Error::result(status)?;
+            infos
+        };
+        Ok(infos
+            .iter()
+            .map(|x| DeviceInfo {
+                handle: x.channel_handle,
+            })
+            .collect())
     }
 }
 

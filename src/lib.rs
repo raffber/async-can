@@ -234,6 +234,10 @@ pub enum Error {
     IdTooLong,
     #[error("Data is too long")]
     DataTooLong,
+    #[error("Interface type was not recognized: {0}")]
+    PCanUnknownInterfaceType(u16),
+    #[error("Other PCAN Error")]
+    PCanOtherError(u32, String),
 }
 
 impl From<io::Error> for Error {
@@ -256,11 +260,19 @@ pub mod socketcan;
 pub use socketcan::{Receiver, Sender};
 
 #[derive(Serialize, Clone)]
-pub struct DeviceInfo {}
+pub struct DeviceInfo {
+    interface_name: String,
+}
 
 pub async fn list_devices() -> Vec<DeviceInfo> {
     #[cfg(target_os = "windows")]
-    return pcan::list_devices().await;
+    {
+        let interfaces = pcan::list_devices().await;
+        return Ok(interfaces.iter().map(|x| x.interface_name()).collect());
+    }
     #[cfg(target_os = "linux")]
-    return socketcan::list_devices().await;
+    {
+        return socketcan::list_devices().await;
+    }
+    // panic!("Not implemened for your platform.");
 }

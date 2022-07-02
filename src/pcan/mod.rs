@@ -1,13 +1,13 @@
 mod api;
 mod sys;
-use crate::{DeviceInfo, Error, Result};
+use crate::{Error, Result};
 use crate::{Message, Timestamp};
 use api::PCan;
 use api::{Handle, PCanMessage};
 use std::sync::Mutex;
 use std::{sync::Arc, thread};
 use tokio::sync::mpsc;
-use tokio::task;
+use tokio::task::{self, spawn_blocking};
 
 use self::api::get_baud;
 
@@ -97,10 +97,18 @@ fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
         let num: u16 = usb_num
             .parse()
             .map_err(|_| Error::InvalidInterfaceAddress)?;
-        if num == 0 || num > 16 {
+        if num == 0 || num > 8 {
             return Err(Error::InvalidInterfaceAddress);
         }
         num + 0x50
+    } else if let Some(pci_num) = ifname.strip_prefix("pci") {
+        let num: u16 = pci_num
+            .parse()
+            .map_err(|_| Error::InvalidInterfaceAddress)?;
+        if num == 0 || num > 8 {
+            return Err(Error::InvalidInterfaceAddress);
+        }
+        num + 64
     } else {
         return Err(Error::InvalidInterfaceAddress);
     };
@@ -249,6 +257,29 @@ impl Drop for Receiver {
     }
 }
 
-pub async fn list_devices() -> Vec<DeviceInfo> {
-    todo!()
+pub struct DeviceInfo {
+    handle: Handle,
+}
+
+impl DeviceInfo {
+    pub fn interface_name(&self) -> crate::Result<String> {
+        if self.handle >= sys::PCAN_USBBUS1 as Handle && self.handle <= sys::PCAN_USBBUS8 as Handle
+        {
+            let num = self.handle - sys::PCAN_USBBUS1 as Handle + 1;
+            return Ok(format!("usb{}", num));
+        } else if self.handle >= sys::PCAN_PCIBUS1 as Handle
+            && self.handle <= sys::PCAN_PCIBUS8 as Handle
+        {
+            let num = self.handle - sys::PCAN_PCIBUS1 as Handle + 1;
+            return Ok(format!("pci{}", num));
+        }
+        return Err(crate::Error::PCanUnknownInterfaceType(self.handle));
+    }
+}
+
+pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
+    spawn_blocking(move || PCan::list_devices())
+        .await
+        .unwrap()
+        .map_err(|x| crate::Error::PCanOtherError(x.code, x.description()))
 }
