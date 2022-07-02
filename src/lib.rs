@@ -236,8 +236,10 @@ pub enum Error {
     DataTooLong,
     #[error("Interface type was not recognized: {0}")]
     PCanUnknownInterfaceType(u16),
-    #[error("Other PCAN Error")]
+    #[error("Other PCAN Error {0}: `{1}`")]
     PCanOtherError(u32, String),
+    #[error("Other Error: {0}")]
+    Other(String),
 }
 
 impl From<io::Error> for Error {
@@ -264,7 +266,7 @@ pub struct DeviceInfo {
     interface_name: String,
 }
 
-pub async fn list_devices() -> Vec<DeviceInfo> {
+pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
     #[cfg(target_os = "windows")]
     {
         let interfaces = pcan::list_devices().await;

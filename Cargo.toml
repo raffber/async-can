@@ -20,6 +20,7 @@ tokio = {version = "^1", features = ["sync", "time", "rt", "net"]}
 libc = "0.2"
 mio = {version = "0.7", features = ["os-ext"]}
 futures = "0.3"
+interfaces = "0.0.8"
 
 [target.'cfg(windows)'.dependencies]
 lazy_static = "1.4.0"

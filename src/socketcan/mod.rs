@@ -13,6 +13,7 @@ use libc::sockaddr;
 use mio::event::Source;
 use mio::unix::SourceFd;
 use tokio::io::unix::AsyncFd;
+use tokio::task::spawn_blocking;
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::{DeviceInfo, Result};
@@ -194,6 +195,31 @@ impl Receiver {
     }
 }
 
-pub async fn list_devices() -> Vec<DeviceInfo> {
-    todo!()
+fn list_devices_blocking() -> crate::Result<Vec<DeviceInfo>> {
+    let interfaces =
+        interfaces::Interface::get_all().map_err(|x| crate::Error::Other(format!("{}", x)))?;
+    // TODO: obviously it's not correct to just check if the interface name just contains "can" but well... it usually works.
+    Ok(interfaces
+        .iter()
+        .filter(|x| x.name.contains("can"))
+        .map(|x| DeviceInfo {
+            interface_name: x.name.clone(),
+        })
+        .collect())
+}
+
+pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
+    spawn_blocking(|| list_devices_blocking()).await.unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_devices() {
+        for x in list_devices_blocking().unwrap() {
+            println!("{}", x.interface_name)
+        }
+    }
 }
