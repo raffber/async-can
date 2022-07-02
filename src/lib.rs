@@ -254,3 +254,13 @@ pub mod socketcan;
 
 #[cfg(target_os = "linux")]
 pub use socketcan::{Receiver, Sender};
+
+#[derive(Serialize, Clone)]
+pub struct DeviceInfo {}
+
+pub async fn list_devices() -> Vec<DeviceInfo> {
+    #[cfg(target_os = "windows")]
+    return pcan::list_devices().await;
+    #[cfg(target_os = "linux")]
+    return socketcan::list_devices().await;
+}

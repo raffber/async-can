@@ -1,6 +1,6 @@
 mod api;
 mod sys;
-use crate::{Error, Result};
+use crate::{DeviceInfo, Error, Result};
 use crate::{Message, Timestamp};
 use api::PCan;
 use api::{Handle, PCanMessage};
@@ -151,7 +151,7 @@ impl Sender {
                     Ok(())
                 } else {
                     Err(crate::Error::PCanInitFailed(err.code, err.description()))
-                }                
+                }
             }
         })
         .await
@@ -247,4 +247,8 @@ impl Drop for Receiver {
             *cancel = true;
         }
     }
+}
+
+pub async fn list_devices() -> Vec<DeviceInfo> {
+    todo!()
 }

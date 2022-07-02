@@ -4,7 +4,7 @@ use std::mem::{size_of, MaybeUninit};
 use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
-use std::task::{Poll, Context};
+use std::task::{Context, Poll};
 
 use futures::future::poll_fn;
 use futures::ready;
@@ -15,7 +15,7 @@ use mio::unix::SourceFd;
 use tokio::io::unix::AsyncFd;
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
-use crate::Result;
+use crate::{DeviceInfo, Result};
 use crate::{Message, Timestamp};
 use mio::{Interest, Registry, Token};
 
@@ -80,7 +80,7 @@ impl CanSocket {
     }
 
     pub async fn recv(&self) -> io::Result<Message> {
-        poll_fn(|cx|  self.poll_read(cx) ).await
+        poll_fn(|cx| self.poll_read(cx)).await
     }
 
     fn poll_read(&self, cx: &mut Context) -> Poll<io::Result<Message>> {
@@ -119,7 +119,6 @@ fn write_to_fd(fd: RawFd, frame: &CanFrame) -> io::Result<()> {
         // successfully sent
         Ok(())
     }
-
 }
 
 fn read_from_fd(fd: RawFd) -> io::Result<Message> {
@@ -193,4 +192,8 @@ impl Receiver {
     pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
         todo!()
     }
+}
+
+pub async fn list_devices() -> Vec<DeviceInfo> {
+    todo!()
 }
