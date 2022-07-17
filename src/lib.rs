@@ -263,7 +263,7 @@ pub use socketcan::{Receiver, Sender};
 
 #[derive(Serialize, Clone)]
 pub struct DeviceInfo {
-    interface_name: String,
+    pub interface_name: String,
 }
 
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
