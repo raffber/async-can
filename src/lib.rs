@@ -56,6 +56,14 @@ impl<'de> Deserialize<'de> for DataFrame {
 }
 
 impl DataFrame {
+    pub fn new(id: u32, ext_id: bool, data: Vec<u8>) -> StdResult<Self, CanFrameError> {
+        CanFrameError::validate_id(id, ext_id)?;
+        if data.len() > CAN_MAX_DLC {
+            return Err(CanFrameError::DataTooLong);
+        }
+        Ok(Self(base::DataFrame { id, ext_id, data }))
+    }
+
     pub fn id(&self) -> u32 {
         self.0.id
     }
@@ -74,6 +82,14 @@ impl DataFrame {
 pub struct RemoteFrame(base::RemoteFrame);
 
 impl RemoteFrame {
+    pub fn new(id: u32, ext_id: bool, dlc: u8) -> StdResult<Self, CanFrameError> {
+        CanFrameError::validate_id(id, ext_id)?;
+        if dlc as usize > CAN_MAX_DLC {
+            return Err(CanFrameError::DataTooLong);
+        }
+        Ok(Self(base::RemoteFrame { id, ext_id, dlc }))
+    }
+
     pub fn id(&self) -> u32 {
         self.0.id
     }
@@ -218,6 +234,12 @@ pub enum Error {
     IdTooLong,
     #[error("Data is too long")]
     DataTooLong,
+    #[error("Interface type was not recognized: {0}")]
+    PCanUnknownInterfaceType(u16),
+    #[error("Other PCAN Error {0}: `{1}`")]
+    PCanOtherError(u32, String),
+    #[error("Other Error: {0}")]
+    Other(String),
 }
 
 impl From<io::Error> for Error {
@@ -238,3 +260,27 @@ pub mod socketcan;
 
 #[cfg(target_os = "linux")]
 pub use socketcan::{Receiver, Sender};
+
+#[derive(Serialize, Clone)]
+pub struct DeviceInfo {
+    pub interface_name: String,
+}
+
+pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
+    #[cfg(target_os = "windows")]
+    {
+        let interfaces = pcan::list_devices().await?;
+        let mut ret = Vec::new();
+        for device_info in interfaces {
+            let device_info = DeviceInfo {
+                interface_name: device_info.interface_name()?,
+            };
+            ret.push(device_info);
+        }
+        return Ok(ret);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return socketcan::list_devices().await;
+    }
+}

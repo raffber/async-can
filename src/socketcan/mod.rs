@@ -4,7 +4,7 @@ use std::mem::{size_of, MaybeUninit};
 use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
-use std::task::{Poll, Context};
+use std::task::{Context, Poll};
 
 use futures::future::poll_fn;
 use futures::ready;
@@ -13,9 +13,10 @@ use libc::sockaddr;
 use mio::event::Source;
 use mio::unix::SourceFd;
 use tokio::io::unix::AsyncFd;
+use tokio::task::spawn_blocking;
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
-use crate::Result;
+use crate::{DeviceInfo, Result};
 use crate::{Message, Timestamp};
 use mio::{Interest, Registry, Token};
 
@@ -80,7 +81,7 @@ impl CanSocket {
     }
 
     pub async fn recv(&self) -> io::Result<Message> {
-        poll_fn(|cx|  self.poll_read(cx) ).await
+        poll_fn(|cx| self.poll_read(cx)).await
     }
 
     fn poll_read(&self, cx: &mut Context) -> Poll<io::Result<Message>> {
@@ -119,7 +120,6 @@ fn write_to_fd(fd: RawFd, frame: &CanFrame) -> io::Result<()> {
         // successfully sent
         Ok(())
     }
-
 }
 
 fn read_from_fd(fd: RawFd) -> io::Result<Message> {
@@ -192,5 +192,34 @@ impl Receiver {
 
     pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
         todo!()
+    }
+}
+
+fn list_devices_blocking() -> crate::Result<Vec<DeviceInfo>> {
+    let interfaces =
+        interfaces::Interface::get_all().map_err(|x| crate::Error::Other(format!("{}", x)))?;
+    // TODO: obviously it's not correct to just check if the interface name just contains "can" but well... it usually works.
+    Ok(interfaces
+        .iter()
+        .filter(|x| x.name.contains("can"))
+        .map(|x| DeviceInfo {
+            interface_name: x.name.clone(),
+        })
+        .collect())
+}
+
+pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
+    spawn_blocking(|| list_devices_blocking()).await.unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_devices() {
+        for x in list_devices_blocking().unwrap() {
+            println!("{}", x.interface_name)
+        }
     }
 }
