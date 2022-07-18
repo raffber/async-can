@@ -269,12 +269,18 @@ pub struct DeviceInfo {
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
     #[cfg(target_os = "windows")]
     {
-        let interfaces = pcan::list_devices().await;
-        return Ok(interfaces.iter().map(|x| x.interface_name()).collect());
+        let interfaces = pcan::list_devices().await?;
+        let mut ret = Vec::new();
+        for device_info in interfaces {
+            let device_info = DeviceInfo {
+                interface_name: device_info.interface_name()?,
+            };
+            ret.push(device_info);
+        }
+        return Ok(ret);
     }
     #[cfg(target_os = "linux")]
     {
         return socketcan::list_devices().await;
     }
-    // panic!("Not implemened for your platform.");
 }
