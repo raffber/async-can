@@ -6,4 +6,4 @@ typedef uint16_t WORD;
 typedef uint64_t UINT64;
 typedef const char* LPSTR;
 
-#include "include/PCANBasic.h"
+#include "PCANBasic.h"

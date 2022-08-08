@@ -2,10 +2,10 @@ fn main() {
     use std::env;
     use std::path::PathBuf;
 
-    println!("cargo:rerun-if-changed=wrapper.h");
+    println!("cargo:rerun-if-changed=include/wrapper.h");
 
     let bindings = bindgen::Builder::default()
-        .header("wrapper.h")
+        .header("include/wrapper.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .generate()
         .expect("Unable to generate bindings");

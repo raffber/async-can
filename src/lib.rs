@@ -5,6 +5,7 @@ extern crate dlopen_derive;
 #[macro_use]
 extern crate lazy_static;
 
+use async_trait::async_trait;
 use std::io;
 use std::result::Result as StdResult;
 use thiserror::Error;
@@ -260,16 +261,21 @@ impl From<io::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[async_trait]
+pub trait Sender {
+    async fn send(&self, msg: Message) -> Result<()>;
+}
+
+#[async_trait]
+pub trait Receiver {
+    async fn recv(&mut self) -> Result<Message>;
+}
+
+#[cfg(feature = "pcan")]
 pub mod pcan;
 
-#[cfg(target_os = "windows")]
-pub use pcan::{Receiver, Sender};
-
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "socket_can"))]
 pub mod socketcan;
-
-#[cfg(target_os = "linux")]
-pub use socketcan::{Receiver, Sender};
 
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]

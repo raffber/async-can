@@ -4,8 +4,7 @@ use crate::{Error, Result};
 use crate::{Message, Timestamp};
 use api::PCan;
 use api::{Handle, PCanMessage};
-use std::sync::Mutex;
-use std::{sync::Arc, thread};
+use std::thread;
 use tokio::sync::mpsc;
 use tokio::task::{self, spawn_blocking};
 
@@ -17,7 +16,6 @@ const INTERRUPT: u16 = 11;
 pub struct Receiver {
     handle: Handle,
     rx: mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
-    cancel: Arc<Mutex<bool>>,
 }
 
 #[cfg(target_os = "linux")]
@@ -170,8 +168,8 @@ impl Sender {
 impl Receiver {
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let handle = connect_handle(ifname, bitrate)?;
-        let (rx, cancel) = Self::start_receive(handle);
-        Ok(Self { handle, rx, cancel })
+        let rx = Self::start_receive(handle);
+        Ok(Self { handle, rx })
     }
 
     fn receive_iteration(handle: Handle, waiter: &Waiter) -> Option<Result<(Message, Timestamp)>> {
@@ -201,23 +199,13 @@ impl Receiver {
         }
     }
 
-    pub fn start_receive(
-        handle: Handle,
-    ) -> (
-        mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
-        Arc<Mutex<bool>>,
-    ) {
+    fn start_receive(handle: Handle) -> mpsc::UnboundedReceiver<Result<(Message, Timestamp)>> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let cancel = Arc::new(Mutex::new(false));
-        let cancel_ret = cancel.clone();
         thread::spawn(move || {
             let waiter = Waiter::new(handle);
             loop {
-                {
-                    let cancel = cancel.lock().unwrap();
-                    if *cancel {
-                        break;
-                    }
+                if tx.is_closed() {
+                    break;
                 }
                 if let Some(ret) = Self::receive_iteration(handle, &waiter) {
                     if tx.send(ret).is_err() {
@@ -226,7 +214,7 @@ impl Receiver {
                 }
             }
         });
-        (rx, cancel_ret)
+        rx
     }
 
     pub async fn recv(&mut self) -> Result<Message> {
@@ -241,19 +229,8 @@ impl Receiver {
     }
 
     pub async fn close(mut self) -> Result<()> {
-        if let Ok(mut cancel) = self.cancel.lock() {
-            *cancel = true;
-        }
-        while let Some(_) = self.rx.recv().await {}
+        self.rx.close();
         Ok(())
-    }
-}
-
-impl Drop for Receiver {
-    fn drop(&mut self) {
-        if let Ok(mut cancel) = self.cancel.lock() {
-            *cancel = true;
-        }
     }
 }
 

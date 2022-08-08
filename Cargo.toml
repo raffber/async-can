@@ -16,6 +16,7 @@ dlopen = "0.1.8"
 dlopen_derive = "0.1.4"
 tempfile = "3.1"
 tokio = {version = "1", features = ["sync", "time", "rt", "net"]}
+async-trait = "0.1.57"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -31,4 +32,7 @@ winapi= { version = "0.3.9", features = ["synchapi"]}
 bindgen = "0.55"
 
 [features]
+default = ["pcan", "socket_can"]
+pcan = []
+socket_can = []
 serde = ["dep:serde"]
