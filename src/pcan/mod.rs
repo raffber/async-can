@@ -6,7 +6,7 @@ use api::PCan;
 use api::{Handle, PCanMessage};
 use async_trait::async_trait;
 use std::thread;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio::task::{self, spawn_blocking};
 
 use self::api::get_baud;
@@ -14,123 +14,17 @@ use self::api::get_baud;
 const IOPORT: u32 = 0x02A0;
 const INTERRUPT: u16 = 11;
 
-pub struct Receiver {
-    handle: Handle,
-    rx: mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
-}
+#[cfg(target_os = "linux")]
+mod waiter_linux;
 
 #[cfg(target_os = "linux")]
-mod waiter {
-    // https://forum.peak-system.com/viewtopic.php?t=3817
-
-    use super::api::PCan;
-    use crate::pcan::api::Handle;
-    use std::os::unix::prelude::RawFd;
-
-    pub(crate) struct Waiter {
-        handle: Handle,
-        fd: RawFd,
-        eventfd: RawFd,
-    }
-
-    pub(crate) struct WaiterHandle {
-        eventfd: RawFd,
-    }
-
-    impl Waiter {
-        pub(crate) fn new(handle: Handle) -> crate::Result<(Self, WaiterHandle)> {
-            let fd = PCan::get_fd(handle)
-                .map_err(|x| crate::Error::PCanInitFailed(x.code, x.description()))?;
-            let eventfd = unsafe { libc::eventfd(0, 0) };
-            if eventfd == -1 {
-                return Err(crate::Error::Io(std::io::Error::last_os_error()))?;
-            }
-
-            let waiter = Self {
-                handle,
-                fd,
-                eventfd,
-            };
-
-            let waiter_handle = WaiterHandle { eventfd };
-            Ok((waiter, waiter_handle))
-        }
-
-        pub(crate) fn wait_for_event(&self) -> crate::Result<()> {
-            let mut polls = [
-                libc::pollfd {
-                    fd: self.fd,
-                    events: libc::POLLIN,
-                    revents: 0,
-                },
-                libc::pollfd {
-                    fd: self.eventfd,
-                    events: libc::POLLIN,
-                    revents: 0,
-                },
-            ];
-            let err =
-                unsafe { libc::poll(&mut polls as *mut libc::pollfd, polls.len() as u64, -1) };
-            if err < 0 {
-                return Err(crate::Error::Io(std::io::Error::last_os_error()))?;
-            }
-            if polls[0].revents != 0 {
-                // TODO: this was an event for CAN file
-            }
-            if polls[1].revents != 0 {
-                // TODO: this was an externally forced wakeup
-            }
-            Ok(())
-        }
-    }
-}
+use waiter_linux::{Waiter, WaiterHandle};
 
 #[cfg(target_os = "windows")]
-mod waiter {
-    use std::ptr::{null, null_mut};
+mod waiter_windows;
 
-    use super::api::PCan;
-    use crate::pcan::api::Handle;
-    use winapi::um::{handleapi::CloseHandle, winnt::HANDLE};
-
-    pub(crate) struct Waiter {
-        event_handle: HANDLE,
-    }
-
-    impl Waiter {
-        pub(crate) fn new(handle: Handle) -> Self {
-            let event_handle = unsafe {
-                let handle = winapi::um::synchapi::CreateEventA(null_mut(), 0, 0, null());
-                if handle.is_null() {
-                    panic!("CreateEventA failed. That should not happen...");
-                }
-                handle
-            };
-            PCan::register_event(handle, event_handle);
-            log::debug!("Waiter Event registered");
-            Waiter { event_handle }
-        }
-
-        pub(crate) fn wait_for_event(&self) {
-            unsafe {
-                let err = winapi::um::synchapi::WaitForSingleObject(self.event_handle, 100);
-                if err == winapi::um::winbase::WAIT_FAILED {
-                    panic!("Waiting for event has failed!");
-                }
-            }
-        }
-    }
-
-    impl Drop for Waiter {
-        fn drop(&mut self) {
-            unsafe {
-                CloseHandle(self.event_handle);
-            }
-        }
-    }
-}
-
-type Waiter = waiter::Waiter;
+#[cfg(target_os = "windows")]
+use waiter_windows::{Waiter, WaiterHandle};
 
 pub struct Sender {
     handle: Handle,
@@ -223,57 +117,68 @@ impl crate::Sender for Sender {
         self.send(msg).await
     }
 }
+pub struct Receiver {
+    handle: Handle,
+    rx: mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
+    waiter_handle: WaiterHandle,
+}
 
 impl Receiver {
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let handle = connect_handle(ifname, bitrate)?;
-        let rx = Self::start_receive(handle);
-        Ok(Self { handle, rx })
+        Self::start_receive(handle)
     }
 
-    fn receive_iteration(handle: Handle, waiter: &Waiter) -> Option<Result<(Message, Timestamp)>> {
-        let (err, data) = PCan::read(handle);
-        if let Some(err) = err {
-            if err.other_error() != 0 {
-                Some(Err(Error::PCanReadFailed(
+    fn receive_loop(
+        handle: Handle,
+        waiter: Waiter,
+        tx: UnboundedSender<crate::Result<(Message, Timestamp)>>,
+    ) {
+        loop {
+            if tx.is_closed() {
+                break;
+            }
+            let (err, data) = PCan::read(handle);
+            let to_send = match err {
+                Some(err) if err.other_error() != 0 => Some(Err(Error::PCanReadFailed(
                     err.other_error(),
                     err.description(),
-                )))
-            } else if err.bus_error() != 0 {
-                Some(Err(Error::BusError(api::parse_bus_error(err.bus_error()))))
-            } else if err.rx_empty() || err.rx_overflow() {
-                waiter.wait_for_event();
-                None
-            } else {
-                Some(Err(Error::PCanReadFailed(err.code, err.description())))
-            }
-        } else if let Some((msg, timestamp)) = data {
-            if let Ok(msg) = msg.into_message() {
-                Some(Ok((msg, timestamp.into())))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    fn start_receive(handle: Handle) -> mpsc::UnboundedReceiver<Result<(Message, Timestamp)>> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        thread::spawn(move || {
-            let waiter = Waiter::new(handle);
-            loop {
-                if tx.is_closed() {
+                ))),
+                Some(err) if err.rx_empty() | err.rx_overflow() => match waiter.wait_for_event() {
+                    Ok(true) => continue,
+                    Ok(false) => break,
+                    Err(x) => {
+                        let _ = tx.send(Err(x)).is_err();
+                        break;
+                    }
+                },
+                Some(err) => Some(Err(Error::PCanReadFailed(err.code, err.description()))),
+                None => None,
+            };
+            if let Some(x) = to_send {
+                if tx.send(x).is_err() {
                     break;
                 }
-                if let Some(ret) = Self::receive_iteration(handle, &waiter) {
-                    if tx.send(ret).is_err() {
+            }
+            if let Some((msg, timestamp)) = data {
+                if let Ok(msg) = msg.into_message() {
+                    if tx.send(Ok((msg, timestamp.into()))).is_err() {
                         break;
                     }
                 }
             }
-        });
-        rx
+        }
+    }
+
+    fn start_receive(handle: Handle) -> crate::Result<Self> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let (waiter, waiter_handle) = Waiter::new(handle)?;
+        thread::spawn(move || Self::receive_loop(handle, waiter, tx));
+        Ok(Self {
+            rx,
+            handle,
+            waiter_handle,
+        })
     }
 
     pub async fn recv(&mut self) -> Result<Message> {
