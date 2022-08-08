@@ -4,6 +4,7 @@ use crate::{Error, Result};
 use crate::{Message, Timestamp};
 use api::PCan;
 use api::{Handle, PCanMessage};
+use async_trait::async_trait;
 use std::thread;
 use tokio::sync::mpsc;
 use tokio::task::{self, spawn_blocking};
@@ -88,17 +89,16 @@ pub struct Sender {
     handle: Handle,
 }
 
-fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
-    let _ = get_baud(bitrate)?;
+fn parse_ifname(ifname: &str) -> Result<Handle> {
     let ifname = ifname.to_lowercase();
-    let handle = if let Some(usb_num) = ifname.strip_prefix("usb") {
+    if let Some(usb_num) = ifname.strip_prefix("usb") {
         let num: u16 = usb_num
             .parse()
             .map_err(|_| Error::InvalidInterfaceAddress)?;
         if num == 0 || num > 8 {
             return Err(Error::InvalidInterfaceAddress);
         }
-        num + 0x50
+        Ok(num + 0x50)
     } else if let Some(pci_num) = ifname.strip_prefix("pci") {
         let num: u16 = pci_num
             .parse()
@@ -106,15 +106,36 @@ fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
         if num == 0 || num > 8 {
             return Err(Error::InvalidInterfaceAddress);
         }
-        num + 64
+        Ok(num + 64)
     } else {
-        return Err(Error::InvalidInterfaceAddress);
-    };
+        Err(Error::InvalidInterfaceAddress)
+    }
+}
+
+fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
+    let _ = get_baud(bitrate)?;
+    let handle = parse_ifname(ifname)?;
     if let Err(err) = PCan::initalize(handle, bitrate, sys::PCAN_TYPE_ISA as u8, IOPORT, INTERRUPT)
     {
         return Err(Error::PCanInitFailed(err.code, err.description()));
     }
     Ok(handle)
+}
+
+pub async fn deinitialize(ifname: &str) -> Result<()> {
+    let handle = parse_ifname(ifname)?;
+    task::spawn_blocking(move || match PCan::uninitialize(handle) {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            if err.code == sys::PCAN_ERROR_INITIALIZE {
+                Ok(())
+            } else {
+                Err(crate::Error::PCanInitFailed(err.code, err.description()))
+            }
+        }
+    })
+    .await
+    .unwrap()
 }
 
 impl Sender {
@@ -123,7 +144,7 @@ impl Sender {
         Ok(Self { handle })
     }
 
-    pub async fn send(&self, msg: Message) -> Result<()> {
+    pub async fn send(&mut self, msg: Message) -> Result<()> {
         let handle = self.handle;
         // we unwrap because shouldn't panic
         task::spawn_blocking(move || {
@@ -147,21 +168,12 @@ impl Sender {
         .await
         .unwrap()
     }
+}
 
-    pub async fn close(self) -> Result<()> {
-        let handle = self.handle;
-        task::spawn_blocking(move || match PCan::uninitialize(handle) {
-            Ok(_) => Ok(()),
-            Err(err) => {
-                if err.code == sys::PCAN_ERROR_INITIALIZE {
-                    Ok(())
-                } else {
-                    Err(crate::Error::PCanInitFailed(err.code, err.description()))
-                }
-            }
-        })
-        .await
-        .unwrap()
+#[async_trait]
+impl crate::Sender for Sender {
+    async fn send(&mut self, msg: Message) -> Result<()> {
+        self.send(msg).await
     }
 }
 
@@ -228,9 +240,16 @@ impl Receiver {
         }
     }
 
-    pub async fn close(mut self) -> Result<()> {
+    pub fn close(mut self) -> Result<()> {
         self.rx.close();
         Ok(())
+    }
+}
+
+#[async_trait]
+impl crate::Receiver for Receiver {
+    async fn recv(&mut self) -> Result<Message> {
+        self.recv().await
     }
 }
 

@@ -263,7 +263,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[async_trait]
 pub trait Sender {
-    async fn send(&self, msg: Message) -> Result<()>;
+    async fn send(&mut self, msg: Message) -> Result<()>;
 }
 
 #[async_trait]
