@@ -21,19 +21,66 @@ pub struct Receiver {
 
 #[cfg(target_os = "linux")]
 mod waiter {
-    use crate::pcan::api::Handle;
-    use std::thread;
-    use std::time::Duration;
+    // https://forum.peak-system.com/viewtopic.php?t=3817
 
-    pub(crate) struct Waiter;
+    use super::api::PCan;
+    use crate::pcan::api::Handle;
+    use std::os::unix::prelude::RawFd;
+
+    pub(crate) struct Waiter {
+        handle: Handle,
+        fd: RawFd,
+        eventfd: RawFd,
+    }
+
+    pub(crate) struct WaiterHandle {
+        eventfd: RawFd,
+    }
 
     impl Waiter {
-        pub(crate) fn new(_handle: Handle) -> Self {
-            Self
+        pub(crate) fn new(handle: Handle) -> crate::Result<(Self, WaiterHandle)> {
+            let fd = PCan::get_fd(handle)
+                .map_err(|x| crate::Error::PCanInitFailed(x.code, x.description()))?;
+            let eventfd = unsafe { libc::eventfd(0, 0) };
+            if eventfd == -1 {
+                return Err(crate::Error::Io(std::io::Error::last_os_error()))?;
+            }
+
+            let waiter = Self {
+                handle,
+                fd,
+                eventfd,
+            };
+
+            let waiter_handle = WaiterHandle { eventfd };
+            Ok((waiter, waiter_handle))
         }
 
-        pub(crate) fn wait_for_event(&self) {
-            thread::sleep(Duration::from_millis(2))
+        pub(crate) fn wait_for_event(&self) -> crate::Result<()> {
+            let mut polls = [
+                libc::pollfd {
+                    fd: self.fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: self.eventfd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            let err =
+                unsafe { libc::poll(&mut polls as *mut libc::pollfd, polls.len() as u64, -1) };
+            if err < 0 {
+                return Err(crate::Error::Io(std::io::Error::last_os_error()))?;
+            }
+            if polls[0].revents != 0 {
+                // TODO: this was an event for CAN file
+            }
+            if polls[1].revents != 0 {
+                // TODO: this was an externally forced wakeup
+            }
+            Ok(())
         }
     }
 }

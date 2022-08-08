@@ -7,6 +7,9 @@ use std::{
     mem::{size_of, MaybeUninit},
 };
 
+#[cfg(target_os = "linux")]
+use std::os::unix::prelude::RawFd;
+
 use super::{sys, DeviceInfo};
 use crate::{CanFrameError, Message};
 use dlopen::wrapper::{Container, WrapperApi};
@@ -369,6 +372,24 @@ impl PCan {
                 handle: x.channel_handle,
             })
             .collect())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn get_fd(handle: Handle) -> Result<RawFd, Error> {
+        use std::os::raw::c_int;
+
+        let mut fd: c_int = 0;
+        let status = unsafe {
+            PCAN.api.CAN_GetValue(
+                handle,
+                sys::PCAN_RECEIVE_EVENT as u8,
+                &mut fd as *mut c_int as *mut c_void,
+                std::mem::size_of::<c_int>() as u32,
+            )
+        };
+        Error::result(status)?;
+
+        Ok(fd)
     }
 }
 
