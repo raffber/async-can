@@ -7,26 +7,29 @@ extern crate lazy_static;
 
 use std::io;
 use std::result::Result as StdResult;
-
-use serde::de::Error as SerdeDeError;
-use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
+
+#[cfg(feature = "serde")]
+use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize};
 
 pub const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
 pub const CAN_STD_ID_MASK: u32 = 0x7FF;
 pub const CAN_MAX_DLC: usize = 8;
 
 pub(crate) mod base {
+    #[cfg(feature = "serde")]
     use serde::{Deserialize, Serialize};
 
-    #[derive(Deserialize, Serialize, Clone)]
+    #[derive(Clone)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub(crate) struct DataFrame {
         pub(crate) id: u32,
         pub(crate) ext_id: bool,
         pub(crate) data: Vec<u8>,
     }
 
-    #[derive(Serialize, Deserialize, Clone)]
+    #[derive(Clone)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub(crate) struct RemoteFrame {
         pub(crate) id: u32,
         pub(crate) ext_id: bool,
@@ -34,9 +37,11 @@ pub(crate) mod base {
     }
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataFrame(base::DataFrame);
 
+#[cfg(feature = "serde")]
 impl<'de> Deserialize<'de> for DataFrame {
     fn deserialize<D>(deserializer: D) -> StdResult<Self, <D as Deserializer<'de>>::Error>
     where
@@ -78,7 +83,8 @@ impl DataFrame {
     }
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RemoteFrame(base::RemoteFrame);
 
 impl RemoteFrame {
@@ -101,6 +107,7 @@ impl RemoteFrame {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de> Deserialize<'de> for RemoteFrame {
     fn deserialize<D>(deserializer: D) -> StdResult<Self, <D as Deserializer<'de>>::Error>
     where
@@ -119,12 +126,14 @@ impl<'de> Deserialize<'de> for RemoteFrame {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Timestamp {
     pub micros: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Message {
     Data(DataFrame),
     Remote(RemoteFrame),
@@ -200,7 +209,8 @@ impl CanFrameError {
     }
 }
 
-#[derive(Error, Debug, Clone, Serialize, Deserialize)]
+#[derive(Error, Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum BusError {
     #[error("Bus-light warning")]
     LightWarning,
@@ -261,7 +271,8 @@ pub mod socketcan;
 #[cfg(target_os = "linux")]
 pub use socketcan::{Receiver, Sender};
 
-#[derive(Serialize, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct DeviceInfo {
     pub interface_name: String,
 }
