@@ -65,7 +65,7 @@ impl Drop for Waiter {
 }
 
 impl WaiterHandle {
-    pub(crate) fn close(self) {
+    pub(crate) fn close(&mut self) {
         self.cancel.store(true, Ordering::SeqCst);
         unsafe {
             SetEvent(self.event_handle);

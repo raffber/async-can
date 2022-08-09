@@ -92,7 +92,7 @@ impl Drop for Waiter {
 }
 
 impl WaiterHandle {
-    pub(crate) fn close(self) {
+    pub(crate) fn close(&mut self) {
         let data = [0_u8; 8];
         self.cancel.store(true, Ordering::SeqCst);
         unsafe {

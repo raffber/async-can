@@ -205,6 +205,12 @@ impl crate::Receiver for Receiver {
     }
 }
 
+impl Drop for Receiver {
+    fn drop(&mut self) {
+        self.waiter_handle.close();
+    }
+}
+
 pub struct DeviceInfo {
     handle: Handle,
 }
