@@ -5,6 +5,7 @@ use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Instant;
 
 use futures::future::poll_fn;
 use futures::{ready, TryStreamExt};
@@ -14,6 +15,8 @@ use mio::event::Source;
 use mio::unix::SourceFd;
 use rtnetlink::packet::nlas::link::{Info, InfoKind, Nla, State};
 use tokio::io::unix::AsyncFd;
+use tokio::sync::mpsc;
+use tokio::task::{self, JoinHandle};
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::{DeviceInfo, Result};
@@ -164,7 +167,8 @@ pub struct Sender {
 }
 
 pub struct Receiver {
-    socket: CanSocket,
+    rx: mpsc::UnboundedReceiver<io::Result<(Message, Timestamp)>>,
+    task: JoinHandle<()>,
 }
 
 impl Sender {
@@ -183,7 +187,24 @@ impl Sender {
 impl Receiver {
     pub fn connect(ifname: String) -> Result<Self> {
         let socket = CanSocket::bind(ifname)?;
-        Ok(Receiver { socket })
+        let (tx, rx) = mpsc::unbounded_channel();
+        let task = task::spawn(async move {
+            let start = Instant::now();
+            loop {
+                match socket.recv().await {
+                    Ok(msg) => {}
+                    Err(err) => {}
+                }
+                let timestamp = Timestamp {
+                    micros: (Instant::now() - start).as_micros() as u64,
+                };
+                let to_send = Ok((msg, timestamp));
+                if tx.send(to_send).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(Receiver { rx, task })
     }
 
     pub async fn recv(&self) -> Result<Message> {
@@ -191,7 +212,8 @@ impl Receiver {
     }
 
     pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
-        todo!()
+        let msg = self.recv().await?;
+        Ok((msg, timestamp))
     }
 }
 
