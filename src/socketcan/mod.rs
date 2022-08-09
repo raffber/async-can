@@ -1,5 +1,5 @@
 use std::ffi::{c_void, CString};
-use std::io;
+use std::io::{self, ErrorKind};
 use std::mem::{size_of, MaybeUninit};
 use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -195,6 +195,45 @@ impl Receiver {
     }
 }
 
+pub async fn get_interface_index_by_name(interface: &str) -> crate::Result<u32> {
+    let devices = list_devices().await?;
+    for device in &devices {
+        if device.interface_name == interface {
+            return Ok(device.index);
+        }
+    }
+    Err(crate::Error::Io(io::Error::new(
+        ErrorKind::NotFound,
+        format!("Interface `{}` not found", interface),
+    )))
+}
+
+pub async fn set_interface_up(interface: &str) -> crate::Result<()> {
+    let index = get_interface_index_by_name(interface).await?;
+    let (con, handle, _) = rtnetlink::new_connection()?;
+    tokio::spawn(con);
+    handle
+        .link()
+        .set(index)
+        .up()
+        .execute()
+        .await
+        .map_err(|x| crate::Error::Other(format!("{}", x)))
+}
+
+pub async fn set_interface_down(interface: &str) -> crate::Result<()> {
+    let index = get_interface_index_by_name(interface).await?;
+    let (con, handle, _) = rtnetlink::new_connection()?;
+    tokio::spawn(con);
+    handle
+        .link()
+        .set(index)
+        .down()
+        .execute()
+        .await
+        .map_err(|x| crate::Error::Other(format!("{}", x)))
+}
+
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
     let (con, handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(con);
@@ -208,6 +247,7 @@ pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
         let mut info = DeviceInfo {
             interface_name: "".to_string(),
             is_ready: false,
+            index: msg.header.index,
         };
         let mut is_can = false;
         for nla in msg.nlas.into_iter() {
@@ -242,8 +282,25 @@ mod test {
     use super::*;
 
     #[tokio::test]
-    async fn test_list_devices() {
+    async fn socketcan_devices_up_down() {
         let devices = list_devices().await.unwrap();
         println!("{:?}", devices);
+        devices
+            .iter()
+            .find(|x| x.interface_name == "vcan0")
+            .expect("`vcan0` device not found.");
+        set_interface_up("vcan0").await.unwrap();
+        let devices = list_devices().await.unwrap();
+        println!("{:?}", devices);
+        devices
+            .iter()
+            .find(|x| x.interface_name == "vcan0" && x.is_ready)
+            .expect("`vcan0` device not up.");
+        set_interface_down("vcan0").await.unwrap();
+        let devices = list_devices().await.unwrap();
+        devices
+            .iter()
+            .find(|x| x.interface_name == "vcan0" && !x.is_ready)
+            .expect("`vcan0` device not down.");
     }
 }

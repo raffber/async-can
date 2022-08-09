@@ -282,6 +282,7 @@ pub mod socketcan;
 pub struct DeviceInfo {
     pub interface_name: String,
     pub is_ready: bool,
+    pub index: u32,
 }
 
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
@@ -289,11 +290,14 @@ pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
     {
         let interfaces = pcan::list_devices().await?;
         let mut ret = Vec::new();
+        let mut idx = 0;
         for device_info in interfaces {
             let device_info = DeviceInfo {
                 interface_name: device_info.interface_name()?,
                 is_ready: true,
+                index: idx,
             };
+            idx += 1;
             ret.push(device_info);
         }
         return Ok(ret);
