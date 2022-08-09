@@ -7,13 +7,13 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::future::poll_fn;
-use futures::ready;
+use futures::{ready, TryStreamExt};
 use libc;
 use libc::sockaddr;
 use mio::event::Source;
 use mio::unix::SourceFd;
+use rtnetlink::packet::nlas::link::{Info, InfoKind, Nla, State};
 use tokio::io::unix::AsyncFd;
-use tokio::task::spawn_blocking;
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::{DeviceInfo, Result};
@@ -195,31 +195,55 @@ impl Receiver {
     }
 }
 
-fn list_devices_blocking() -> crate::Result<Vec<DeviceInfo>> {
-    let interfaces =
-        interfaces::Interface::get_all().map_err(|x| crate::Error::Other(format!("{}", x)))?;
-    // TODO: obviously it's not correct to just check if the interface name just contains "can" but well... it usually works.
-    Ok(interfaces
-        .iter()
-        .filter(|x| x.name.contains("can"))
-        .map(|x| DeviceInfo {
-            interface_name: x.name.clone(),
-        })
-        .collect())
-}
-
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
-    spawn_blocking(|| list_devices_blocking()).await.unwrap()
+    let (con, handle, _) = rtnetlink::new_connection()?;
+    tokio::spawn(con);
+    let mut links = handle.link().get().execute();
+    let mut can_interfaces = Vec::new();
+    while let Some(msg) = links
+        .try_next()
+        .await
+        .map_err(|x| crate::Error::Other(format!("{}", x)))?
+    {
+        let mut info = DeviceInfo {
+            interface_name: "".to_string(),
+            is_ready: false,
+        };
+        let mut is_can = false;
+        for nla in msg.nlas.into_iter() {
+            match nla {
+                Nla::IfName(name) => {
+                    info.interface_name = name;
+                }
+                Nla::Info(infos) => {
+                    for info in infos {
+                        if let Info::Kind(InfoKind::Other(kind)) = info {
+                            if kind == "can" || kind == "vcan" {
+                                is_can = true;
+                            }
+                        }
+                    }
+                }
+                Nla::OperState(State::Up) | Nla::OperState(State::Unknown) => {
+                    info.is_ready = true;
+                }
+                _ => {}
+            }
+        }
+        if is_can {
+            can_interfaces.push(info);
+        }
+    }
+    Ok(can_interfaces)
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
 
-    #[test]
-    fn list_devices() {
-        for x in list_devices_blocking().unwrap() {
-            println!("{}", x.interface_name)
-        }
+    #[tokio::test]
+    async fn test_list_devices() {
+        let devices = list_devices().await.unwrap();
+        println!("{:?}", devices);
     }
 }

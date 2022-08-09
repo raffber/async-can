@@ -15,14 +15,14 @@ lazy_static = "1"
 dlopen = "0.1.8"
 dlopen_derive = "0.1.4"
 tempfile = "3.1"
-tokio = {version = "1", features = ["sync", "time", "rt", "net"]}
+tokio = {version = "1", features = ["sync", "time", "rt", "net", "macros"]}
 async-trait = "0.1.57"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 mio = {version = "0.7", features = ["os-ext"]}
 futures = "0.3"
-interfaces = "0.0.8"
+rtnetlink = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 lazy_static = "1.4.0"

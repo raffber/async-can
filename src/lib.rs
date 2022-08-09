@@ -277,10 +277,11 @@ pub mod pcan;
 #[cfg(all(target_os = "linux", feature = "socket_can"))]
 pub mod socketcan;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct DeviceInfo {
     pub interface_name: String,
+    pub is_ready: bool,
 }
 
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
@@ -291,6 +292,7 @@ pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
         for device_info in interfaces {
             let device_info = DeviceInfo {
                 interface_name: device_info.interface_name()?,
+                is_ready: true,
             };
             ret.push(device_info);
         }
