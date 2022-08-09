@@ -291,7 +291,8 @@ impl PCan {
         Error::result(status)
     }
 
-    pub fn register_event(channel: Handle, event: *const c_void) {
+    #[cfg(target_os = "windows")]
+    pub fn register_event(channel: Handle, event: isize) {
         unsafe {
             let event_int = event as usize;
             let event_ptr = &event_int as *const usize as *const c_void;

@@ -1,5 +1,7 @@
 // https://forum.peak-system.com/viewtopic.php?t=3817
 
+use libc::c_void;
+
 use super::api::PCan;
 use crate::pcan::api::Handle;
 use std::{
@@ -63,6 +65,14 @@ impl Waiter {
         }
         if polls[1].revents != 0 {
             // eventfd was flagged
+            let mut data = [0_u8; 8];
+            unsafe {
+                libc::read(
+                    self.eventfd,
+                    &mut data as *mut u8 as *mut c_void,
+                    data.len(),
+                );
+            }
             return Ok(self.cancel.load(Ordering::SeqCst));
         }
         if polls[0].revents != 0 {
@@ -70,5 +80,27 @@ impl Waiter {
             return Ok(false);
         }
         Ok(false)
+    }
+}
+
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.eventfd);
+        }
+    }
+}
+
+impl WaiterHandle {
+    pub(crate) fn close(self) {
+        let data = [0_u8; 8];
+        self.cancel.store(true, Ordering::SeqCst);
+        unsafe {
+            libc::write(
+                self.eventfd,
+                &data as *const u8 as *const c_void,
+                data.len(),
+            );
+        }
     }
 }
