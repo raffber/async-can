@@ -5,6 +5,7 @@ use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Instant;
 
 use futures::future::poll_fn;
 use futures::{ready, TryStreamExt};
@@ -165,6 +166,7 @@ pub struct Sender {
 
 pub struct Receiver {
     socket: CanSocket,
+    start: Instant,
 }
 
 impl Sender {
@@ -183,7 +185,10 @@ impl Sender {
 impl Receiver {
     pub fn connect(ifname: String) -> Result<Self> {
         let socket = CanSocket::bind(ifname)?;
-        Ok(Receiver { socket })
+        Ok(Receiver {
+            socket,
+            start: Instant::now(),
+        })
     }
 
     pub async fn recv(&self) -> Result<Message> {
@@ -191,7 +196,11 @@ impl Receiver {
     }
 
     pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
-        todo!()
+        let msg = self.socket.recv().await?;
+        let timestamp = Timestamp {
+            micros: (Instant::now() - self.start).as_micros() as u64,
+        };
+        Ok((msg, timestamp))
     }
 }
 
