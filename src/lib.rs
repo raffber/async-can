@@ -10,6 +10,9 @@ use std::io;
 use std::result::Result as StdResult;
 use thiserror::Error;
 
+#[cfg(feature = "usr_canet")]
+mod usr_canet;
+
 #[cfg(feature = "serde")]
 use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize};
 
@@ -176,6 +179,13 @@ impl Message {
         match self {
             Message::Data(x) => x.0.ext_id,
             Message::Remote(x) => x.0.ext_id,
+        }
+    }
+
+    pub fn dlc(&self) -> u8 {
+        match self {
+            Message::Data(x) => x.dlc(),
+            Message::Remote(x) => x.0.dlc,
         }
     }
 }

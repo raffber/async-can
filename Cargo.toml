@@ -15,8 +15,9 @@ lazy_static = "1"
 dlopen = "0.1.8"
 dlopen_derive = "0.1.4"
 tempfile = "3.1"
-tokio = {version = "1", features = ["sync", "time", "rt", "net", "macros"]}
+tokio = {version = "1", features = ["sync", "time", "rt", "net", "macros", "io-util"]}
 async-trait = "0.1.57"
+byteorder = {version = "1.4", optional = true}
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -32,7 +33,8 @@ windows-sys = {version = "0.36", features = ["Win32_Foundation", "Win32_System_T
 bindgen = "0.55"
 
 [features]
-default = ["pcan", "socket_can"]
+default = ["pcan", "socket_can", "usr_canet"]
 pcan = []
 socket_can = []
+usr_canet = ["dep:byteorder"]
 serde = ["dep:serde"]
