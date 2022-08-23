@@ -77,7 +77,7 @@ impl CanFrame {
         match msg {
             Message::Data(msg) => {
                 let mut can_data = [0_u8; CAN_MAX_DLEN];
-                can_data[0..msg.data().len()].copy_from_slice(&msg.data());
+                can_data[0..msg.data().len()].copy_from_slice(msg.data());
                 Ok(CanFrame {
                     id,
                     dlc: msg.data().len() as u8,
@@ -111,18 +111,18 @@ pub(crate) struct CanSocketAddr {
     pub(crate) tx_id: u32,
 }
 
-impl Into<Message> for CanFrame {
-    fn into(self) -> Message {
-        let (id, ext_id) = if self.id & CAN_EFF_FLAG > 0 {
-            (self.id & CAN_EXT_ID_MASK, true)
+impl From<CanFrame> for Message {
+    fn from(val: CanFrame) -> Self {
+        let (id, ext_id) = if val.id & CAN_EFF_FLAG > 0 {
+            (val.id & CAN_EXT_ID_MASK, true)
         } else {
-            (self.id & CAN_STD_ID_MASK, false)
+            (val.id & CAN_STD_ID_MASK, false)
         };
-        let rtr = self.id & CAN_RTR_FLAG > 0;
+        let rtr = val.id & CAN_RTR_FLAG > 0;
         if rtr {
-            Message::new_remote(id, ext_id, self.dlc).unwrap()
+            Message::new_remote(id, ext_id, val.dlc).unwrap()
         } else {
-            Message::new_data(id, ext_id, &self.data[0..(self.dlc as usize)]).unwrap()
+            Message::new_data(id, ext_id, &val.data[0..(val.dlc as usize)]).unwrap()
         }
     }
 }

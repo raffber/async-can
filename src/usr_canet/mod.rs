@@ -16,7 +16,7 @@ pub struct Receiver {
     stream: OwnedReadHalf,
 }
 
-async fn connect<A: ToSocketAddrs>(addr: A) -> crate::Result<(Sender, Receiver)> {
+pub async fn connect<A: ToSocketAddrs>(addr: A) -> crate::Result<(Sender, Receiver)> {
     let stream = TcpStream::connect(addr).await?;
     let (read, write) = stream.into_split();
     let sender = Sender { stream: write };

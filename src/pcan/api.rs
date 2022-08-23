@@ -18,10 +18,10 @@ use std::os::raw::c_char;
 use tempfile::NamedTempFile;
 
 #[cfg(target_os = "windows")]
-const PCAN_LIB: &'static [u8] = include_bytes!("../../lib/PCANBasic.dll");
+const PCAN_LIB: &[u8] = include_bytes!("../../lib/PCANBasic.dll");
 
 #[cfg(target_os = "linux")]
-const PCAN_LIB: &'static [u8] = include_bytes!("../../lib/libpcanbasic.so");
+const PCAN_LIB: &[u8] = include_bytes!("../../lib/libpcanbasic.so");
 
 pub type Handle = u16;
 pub type Status = u32;
@@ -71,7 +71,7 @@ impl PCanMessage {
                 }
 
                 let mut data = [0_u8; 8];
-                data[0..frame.data().len()].copy_from_slice(&frame.data());
+                data[0..frame.data().len()].copy_from_slice(frame.data());
                 let tp = if frame.ext_id() {
                     sys::PCAN_MESSAGE_EXTENDED
                 } else {
@@ -223,6 +223,7 @@ impl PCan {
 
     pub fn describe_status(status: u32) -> String {
         unsafe {
+            #[allow(clippy::uninit_assumed_init)]
             let mut data: [c_char; 512] = MaybeUninit::uninit().assume_init();
             PCAN.api.CAN_GetErrorText(status, 0x00, data.as_mut_ptr());
             let ret = CStr::from_ptr(data.as_ptr());
@@ -353,6 +354,7 @@ impl PCan {
             );
             Error::result(status)?;
 
+            #[allow(clippy::uninit_assumed_init)]
             let channel_info = MaybeUninit::<sys::TPCANChannelInformation>::uninit().assume_init();
             let mut infos = vec![channel_info; channel_count as usize];
             let ptr = infos.as_mut_ptr() as *mut c_void;
@@ -394,10 +396,10 @@ impl PCan {
     }
 }
 
-impl Into<crate::Timestamp> for Timestamp {
-    fn into(self) -> crate::Timestamp {
-        let us = self.micros as u64;
-        let ms = self.millis as u64;
+impl From<Timestamp> for crate::Timestamp {
+    fn from(val: Timestamp) -> Self {
+        let us = val.micros as u64;
+        let ms = val.millis as u64;
         let micros = ms * 1000 + us;
         crate::Timestamp { micros }
     }

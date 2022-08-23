@@ -2,16 +2,18 @@
 //!
 //! ## Listing to a CAN Bus
 //!
-//! ```
+//! ```no_run
+//! # tokio_test::block_on(async {
 //! use async_can::{pcan, socketcan};
 //!
-//! let receiver = pcan::Receiver::connect("usb1", 125000).unwrap();
+//! let mut receiver = pcan::Receiver::connect("usb1", 125000).unwrap();
 //! // or: let receiver = socketcan::Receiver::connect("can0").unwrap();
 //!
 //! for _ in 0 .. 10 {
-//!     let msg = receiver.recv();
+//!     let msg = receiver.recv().await;
 //!     println!("Message Received: {:?}", msg);
 //! }
+//! # })
 //! ```
 //!
 //! Note that all receivers implement the [`crate::Receiver`] trait.
@@ -19,18 +21,19 @@
 //!
 //! ## Sending CAN Messages
 //!
-//! ```
+//! ```no_run
+//! # tokio_test::block_on(async {
 //! use async_can::{pcan, socketcan};
 //! use async_can::Message;
 //!
-//! let sender = pcan::Sender::connect("usb1", 125000).unwrap();
+//! let mut sender = pcan::Sender::connect("usb1", 125000).unwrap();
 //! // or: let sender = socketcan::Sender::connect("can0").unwrap();
 //!
 //! for k in 0 .. 10 {
 //!     let msg = Message::new_data(/*id=*/ k | 0x100, /*ext_id=*/ true, /* data=*/ &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
 //!     sender.send(msg).await.unwrap();
-//!     println!("Message Received: {:?}", msg);
 //! }
+//! # })
 //! ```
 //!
 //! Note that all senders implement the [`crate::Sender`] trait.
@@ -39,19 +42,23 @@
 //!
 //! USR CANET devices use a simple protocol on top of TCP to connect to a CAN bus.
 //!
-//! ```
+//! ```no_run
+//! # tokio_test::block_on(async {
 //! use async_can::usr_canet;
 //!
-//! let (sender, receiver) = usr_canet::connect("192.168.1.10:1").await?;
+//! let (sender, receiver) = usr_canet::connect("192.168.1.10:1").await.unwrap();
+//! # });
 //! ```
 //!
 //! ## Listing CAN devices
 //!
-//! ```
+//! ```no_run
+//! # tokio_test::block_on(async {
 //! use async_can::{pcan, socketcan};
 //!
-//! println!("{:?}", pcan::list_devices());
-//! println!("{:?}", socketcan::list_devices());
+//! println!("{:?}", pcan::list_devices().await);
+//! println!("{:?}", socketcan::list_devices().await);
+//! # })
 //! ```
 //!
 //! ## Serde Support
@@ -76,7 +83,7 @@ use std::result::Result as StdResult;
 use thiserror::Error;
 
 #[cfg(feature = "usr_canet")]
-mod usr_canet;
+pub mod usr_canet;
 
 #[cfg(feature = "serde")]
 use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize};
@@ -94,7 +101,7 @@ pub(crate) mod base {
     #[cfg(feature = "serde")]
     use serde::{Deserialize, Serialize};
 
-    #[derive(Clone)]
+    #[derive(Debug, Clone)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub(crate) struct DataFrame {
         pub(crate) id: u32,
@@ -102,7 +109,7 @@ pub(crate) mod base {
         pub(crate) data: Vec<u8>,
     }
 
-    #[derive(Clone)]
+    #[derive(Debug, Clone)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub(crate) struct RemoteFrame {
         pub(crate) id: u32,
@@ -112,7 +119,7 @@ pub(crate) mod base {
 }
 
 /// A CAN data frame, i.e. the RTR bit is set to 0
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataFrame(base::DataFrame);
 
@@ -161,7 +168,7 @@ impl DataFrame {
 
 /// A CAN remote frame, i.e. the RTR bit is set to 1. Also, this type of frame
 ///  does not have a data field.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RemoteFrame(base::RemoteFrame);
 
@@ -206,7 +213,7 @@ impl<'de> Deserialize<'de> for RemoteFrame {
 }
 
 /// A timestamp which defines when the CAN message was received on the bus.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Timestamp {
     pub micros: u64,
@@ -215,7 +222,7 @@ pub struct Timestamp {
 /// A message on the CAN bus, either a [`DataFrame`] or a [`RemoteFrame`].
 ///
 /// In the future this will also contain a CAN-FD frame type.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Message {
     Data(DataFrame),
@@ -293,10 +300,8 @@ impl CanFrameError {
             if id > CAN_EXT_ID_MASK {
                 return Err(CanFrameError::IdTooLong);
             }
-        } else {
-            if id > CAN_STD_ID_MASK {
-                return Err(CanFrameError::IdTooLong);
-            }
+        } else if id > CAN_STD_ID_MASK {
+            return Err(CanFrameError::IdTooLong);
         }
         Ok(())
     }

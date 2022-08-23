@@ -178,7 +178,7 @@ impl Sender {
     }
 
     pub async fn send(&self, msg: Message) -> Result<()> {
-        Ok(self.socket.send(msg).await?)
+        self.socket.send(msg).await
     }
 }
 
@@ -290,6 +290,7 @@ pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
 mod test {
     use super::*;
 
+    #[ignore]
     #[tokio::test]
     async fn socketcan_devices_up_down() {
         let devices = list_devices().await.unwrap();

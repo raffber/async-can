@@ -211,6 +211,7 @@ impl Drop for Receiver {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct DeviceInfo {
     handle: Handle,
 }
@@ -227,12 +228,12 @@ impl DeviceInfo {
             let num = self.handle - sys::PCAN_PCIBUS1 as Handle + 1;
             return Ok(format!("pci{}", num));
         }
-        return Err(crate::Error::PCanUnknownInterfaceType(self.handle));
+        Err(crate::Error::PCanUnknownInterfaceType(self.handle))
     }
 }
 
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
-    spawn_blocking(move || PCan::list_devices())
+    spawn_blocking(PCan::list_devices)
         .await
         .unwrap()
         .map_err(|x| crate::Error::PCanOtherError(x.code, x.description()))
