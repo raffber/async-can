@@ -1,3 +1,68 @@
+//! This library provides a tokio based aynchronous IO stack for CAN communication.
+//!
+//! ## Listing to a CAN Bus
+//!
+//! ```
+//! use async_can::{pcan, socketcan};
+//!
+//! let receiver = pcan::Receiver::connect("usb1", 125000).unwrap();
+//! // or: let receiver = socketcan::Receiver::connect("can0").unwrap();
+//!
+//! for _ in 0 .. 10 {
+//!     let msg = receiver.recv();
+//!     println!("Message Received: {:?}", msg);
+//! }
+//! ```
+//!
+//! Note that all receivers implement the [`crate::Receiver`] trait.
+//!
+//!
+//! ## Sending CAN Messages
+//!
+//! ```
+//! use async_can::{pcan, socketcan};
+//! use async_can::Message;
+//!
+//! let sender = pcan::Sender::connect("usb1", 125000).unwrap();
+//! // or: let sender = socketcan::Sender::connect("can0").unwrap();
+//!
+//! for k in 0 .. 10 {
+//!     let msg = Message::new_data(/*id=*/ k | 0x100, /*ext_id=*/ true, /* data=*/ &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+//!     sender.send(msg).await.unwrap();
+//!     println!("Message Received: {:?}", msg);
+//! }
+//! ```
+//!
+//! Note that all senders implement the [`crate::Sender`] trait.
+//!
+//! ## USR CANNET devices
+//!
+//! USR CANET devices use a simple protocol on top of TCP to connect to a CAN bus.
+//!
+//! ```
+//! use async_can::usr_canet;
+//!
+//! let (sender, receiver) = usr_canet::connect("192.168.1.10:1").await?;
+//! ```
+//!
+//! ## Listing CAN devices
+//!
+//! ```
+//! use async_can::{pcan, socketcan};
+//!
+//! println!("{:?}", pcan::list_devices());
+//! println!("{:?}", socketcan::list_devices());
+//! ```
+//!
+//! ## Serde Support
+//!
+//! ```toml
+//! async-can = {version = "*", features = [serde]}
+//! ```
+//!
+//! This allows serializing the [`Message`] and related type.
+//!
+//!
 #![allow(dead_code)]
 
 #[macro_use]
@@ -16,8 +81,13 @@ mod usr_canet;
 #[cfg(feature = "serde")]
 use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize};
 
+/// Maximum value for CAN ID if extended 29-bit ID is selected
 pub const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
+
+/// Maximum value for CAN ID if standard 11-bit ID is selected
 pub const CAN_STD_ID_MASK: u32 = 0x7FF;
+
+// Maximum data length or dlc in a CAN message
 pub const CAN_MAX_DLC: usize = 8;
 
 pub(crate) mod base {
@@ -41,6 +111,7 @@ pub(crate) mod base {
     }
 }
 
+/// A CAN data frame, i.e. the RTR bit is set to 0
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataFrame(base::DataFrame);
@@ -65,6 +136,7 @@ impl<'de> Deserialize<'de> for DataFrame {
 }
 
 impl DataFrame {
+    /// Create a new [`DataFrame`] and returns an error in case the ID is out of range or the data is too long.
     pub fn new(id: u32, ext_id: bool, data: Vec<u8>) -> StdResult<Self, CanFrameError> {
         CanFrameError::validate_id(id, ext_id)?;
         if data.len() > CAN_MAX_DLC {
@@ -87,11 +159,14 @@ impl DataFrame {
     }
 }
 
+/// A CAN remote frame, i.e. the RTR bit is set to 1. Also, this type of frame
+///  does not have a data field.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RemoteFrame(base::RemoteFrame);
 
 impl RemoteFrame {
+    /// Create a new [`RemoteFrame`] and returns an error in case the ID is out of range or the dlc is too long.
     pub fn new(id: u32, ext_id: bool, dlc: u8) -> StdResult<Self, CanFrameError> {
         CanFrameError::validate_id(id, ext_id)?;
         if dlc as usize > CAN_MAX_DLC {
@@ -130,12 +205,16 @@ impl<'de> Deserialize<'de> for RemoteFrame {
     }
 }
 
+/// A timestamp which defines when the CAN message was received on the bus.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Timestamp {
     pub micros: u64,
 }
 
+/// A message on the CAN bus, either a [`DataFrame`] or a [`RemoteFrame`].
+///
+/// In the future this will also contain a CAN-FD frame type.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Message {
@@ -144,6 +223,7 @@ pub enum Message {
 }
 
 impl Message {
+    /// Create a new message containing a data frame. Returns an error in case the ID is out of range or the data is too long.
     pub fn new_data(id: u32, ext_id: bool, data: &[u8]) -> StdResult<Message, CanFrameError> {
         CanFrameError::validate_id(id, ext_id)?;
         if data.len() > CAN_MAX_DLC {
@@ -156,6 +236,7 @@ impl Message {
         })))
     }
 
+    /// Create a new message containing a remote frame. Returns an error in case the ID is out of range or the dlc is too long.
     pub fn new_remote(id: u32, ext_id: bool, dlc: u8) -> StdResult<Message, CanFrameError> {
         CanFrameError::validate_id(id, ext_id)?;
         if dlc as usize > CAN_MAX_DLC {
@@ -190,6 +271,7 @@ impl Message {
     }
 }
 
+/// Encodes errors that may occur when attempting to create/validate CAN message fields.
 #[derive(Debug)]
 pub enum CanFrameError {
     IdTooLong,
@@ -233,6 +315,7 @@ pub enum BusError {
     Off,
 }
 
+/// Error type encoding all possible errors that may occur in this crate
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("Io Error: {0}")]
@@ -271,11 +354,17 @@ impl From<io::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// `#[async_trait]` that defines an interface to send CAN messages.
+///
+/// Useful for boxing up CAN Senders of different types
 #[async_trait]
 pub trait Sender {
     async fn send(&mut self, msg: Message) -> Result<()>;
 }
 
+/// `#[async_trait]` that defines an interface to receive CAN messages.
+///
+/// Useful for boxing up CAN Receivers of different types
 #[async_trait]
 pub trait Receiver {
     async fn recv(&mut self) -> Result<Message>;
@@ -287,33 +376,11 @@ pub mod pcan;
 #[cfg(all(target_os = "linux", feature = "socket_can"))]
 pub mod socketcan;
 
+/// Captures CAN device information of devices connected to the host.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct DeviceInfo {
     pub interface_name: String,
     pub is_ready: bool,
     pub index: u32,
-}
-
-pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
-    #[cfg(target_os = "windows")]
-    {
-        let interfaces = pcan::list_devices().await?;
-        let mut ret = Vec::new();
-        let mut idx = 0;
-        for device_info in interfaces {
-            let device_info = DeviceInfo {
-                interface_name: device_info.interface_name()?,
-                is_ready: true,
-                index: idx,
-            };
-            idx += 1;
-            ret.push(device_info);
-        }
-        return Ok(ret);
-    }
-    #[cfg(target_os = "linux")]
-    {
-        return socketcan::list_devices().await;
-    }
 }
