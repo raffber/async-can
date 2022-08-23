@@ -1,3 +1,5 @@
+//! Implements an async interface to the Linux SocketCAN
+
 use std::ffi::{c_void, CString};
 use std::io::{self, ErrorKind};
 use std::mem::{size_of, MaybeUninit};
@@ -23,6 +25,7 @@ use mio::{Interest, Registry, Token};
 
 mod sys;
 
+/// A type that connects to CAN socket
 pub struct CanSocket {
     inner: AsyncFd<RawFd>,
 }
@@ -42,6 +45,7 @@ impl AsRawFd for CanSocket {
 }
 
 impl CanSocket {
+    /// Bind to the CAN socket with the given interface name
     pub fn bind<T: AsRef<str>>(ifname: T) -> io::Result<Self> {
         let name = CString::new(ifname.as_ref()).unwrap();
         let ifindex = unsafe { libc::if_nametoindex(name.as_ptr()) };
@@ -81,7 +85,8 @@ impl CanSocket {
         Ok(Self { inner })
     }
 
-    pub async fn recv(&self) -> io::Result<Message> {
+    /// Try to receive a [`crate::Message`] from the CAN bus
+    async fn recv(&self) -> io::Result<Message> {
         poll_fn(|cx| self.poll_read(cx)).await
     }
 
@@ -95,6 +100,7 @@ impl CanSocket {
         }
     }
 
+    /// Try to send a [`crate::Message`] to the CAN bus
     pub async fn send(&self, msg: Message) -> crate::Result<()> {
         let frame: CanFrame = CanFrame::from_message(msg)?;
         let ret = poll_fn(|cx| self.poll_write(cx, &frame)).await;
@@ -159,17 +165,24 @@ impl Source for CanSocket {
     }
 }
 
+/// Allows sending messages to the CAN bus
 #[derive(Clone)]
 pub struct Sender {
     socket: Arc<CanSocket>,
 }
 
+/// Allows receiving messages from the CAN bus
 pub struct Receiver {
     socket: CanSocket,
+
+    // receiving messages with hardware timestamps is currently not supported.
+    // we use an Instant to polyfill the missing functionality
+    // in the future this may be implemented with netlink sockets
     start: Instant,
 }
 
 impl Sender {
+    /// Bind to a SocketCAN interface
     pub fn connect(ifname: String) -> Result<Self> {
         let socket = CanSocket::bind(ifname)?;
         Ok(Sender {
@@ -177,12 +190,21 @@ impl Sender {
         })
     }
 
+    /// Create a [`Sender`] from an existing [`CanSocket`]
+    pub fn from_socket(socket: CanSocket) -> Self {
+        Self {
+            socket: Arc::new(socket),
+        }
+    }
+
+    /// Send a message to the bus
     pub async fn send(&self, msg: Message) -> Result<()> {
         self.socket.send(msg).await
     }
 }
 
 impl Receiver {
+    /// Bind to a SocketCAN interface
     pub fn connect(ifname: String) -> Result<Self> {
         let socket = CanSocket::bind(ifname)?;
         Ok(Receiver {
@@ -191,10 +213,22 @@ impl Receiver {
         })
     }
 
+    /// Create a [`Receiver`] from an existing [`CanSocket`]
+    pub fn from_socket(socket: CanSocket) -> Self {
+        Self {
+            socket,
+            start: Instant::now(),
+        }
+    }
+
+    /// Receive a message from the CAN bus
     pub async fn recv(&self) -> Result<Message> {
         Ok(self.socket.recv().await?)
     }
 
+    /// Receive a message from the CAN bus including a timestamp when the message was received.
+    ///
+    /// NOTE: This is not yet properly implemented and will use simple polyfill using `Instant::now()`
     pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
         let msg = self.socket.recv().await?;
         let timestamp = Timestamp {
@@ -204,6 +238,7 @@ impl Receiver {
     }
 }
 
+/// Return the index of the given interface
 pub async fn get_interface_index_by_name(interface: &str) -> crate::Result<u32> {
     let devices = list_devices().await?;
     for device in &devices {
@@ -217,6 +252,14 @@ pub async fn get_interface_index_by_name(interface: &str) -> crate::Result<u32> 
     )))
 }
 
+/// Enable the given CAN interface.
+///
+/// This is like calling
+/// ```sh
+/// ip link set can0 up
+/// ```
+///
+/// Note, that this requires the capability `CAP_NET_ADMIN`
 pub async fn set_interface_up(interface: &str) -> crate::Result<()> {
     let index = get_interface_index_by_name(interface).await?;
     let (con, handle, _) = rtnetlink::new_connection()?;
@@ -230,6 +273,14 @@ pub async fn set_interface_up(interface: &str) -> crate::Result<()> {
         .map_err(|x| crate::Error::Other(format!("{}", x)))
 }
 
+/// Disable the given CAN interface.
+///
+/// This is like calling
+/// ```sh
+/// ip link set can0 down
+/// ```
+///
+/// Note, that this requires the capability `CAP_NET_ADMIN`
 pub async fn set_interface_down(interface: &str) -> crate::Result<()> {
     let index = get_interface_index_by_name(interface).await?;
     let (con, handle, _) = rtnetlink::new_connection()?;
@@ -243,6 +294,9 @@ pub async fn set_interface_down(interface: &str) -> crate::Result<()> {
         .map_err(|x| crate::Error::Other(format!("{}", x)))
 }
 
+/// List all SocketCAN interfaces
+///
+/// This is similar to using `ip link` but already filters for CAN interfaces
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
     let (con, handle, _) = rtnetlink::new_connection()?;
     tokio::spawn(con);

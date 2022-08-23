@@ -1,3 +1,24 @@
+//! Implements an async interface to the PCAN-API
+//!
+//! This modules ships directly with the necessary DLL embedded and
+//! automatically extracts and loads it the first time you use it.
+//! However, the [PCAN driver](https://www.peak-system.com/Drivers.523.0.html) still needs to be installed.
+//!
+//! Note that on linux it is generally recommended to use the SocketCAN interface. With most recent distributions
+//! no installation is required.
+//!
+//!
+//! ## Interface Names
+//!
+//! To reduce interface differences between the SocketCAN module and the PCAN module, we use string based
+//! device names to identify the PCAN devices. Currently the following devices are supported:
+//!
+//!  * "usb1" to "usb8"
+//!  * "pci0" to "pci8"
+//!
+//! If you know that only a single USB dongle will be connected to the host, it's safe to just hard-code the "usb1" string.
+//!
+
 mod api;
 mod sys;
 use crate::{Error, Result};
@@ -25,10 +46,6 @@ mod waiter_windows;
 
 #[cfg(target_os = "windows")]
 use waiter_windows::{Waiter, WaiterHandle};
-
-pub struct Sender {
-    handle: Handle,
-}
 
 fn parse_ifname(ifname: &str) -> Result<Handle> {
     let ifname = ifname.to_lowercase();
@@ -63,6 +80,7 @@ fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
     Ok(handle)
 }
 
+/// Attempt de-initialize an interface, thus disconnecting from the CAN bus
 pub async fn deinitialize(ifname: &str) -> Result<()> {
     let handle = parse_ifname(ifname)?;
     task::spawn_blocking(move || match PCan::uninitialize(handle) {
@@ -79,12 +97,20 @@ pub async fn deinitialize(ifname: &str) -> Result<()> {
     .unwrap()
 }
 
+/// Allows sending messages to the CAN bus.
+pub struct Sender {
+    handle: Handle,
+}
+
 impl Sender {
+    /// Connect the given interface and initializes the adapter to the given bitrate (if required).
+    /// For nameing interafaces, refer to the [module documentation](crate::pcan).
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let handle = connect_handle(ifname, bitrate)?;
         Ok(Self { handle })
     }
 
+    /// Send a message to the CAN bus
     pub async fn send(&mut self, msg: Message) -> Result<()> {
         let handle = self.handle;
         // we unwrap because shouldn't panic
@@ -117,6 +143,8 @@ impl crate::Sender for Sender {
         self.send(msg).await
     }
 }
+
+/// Allows receiving message from the CAN bus.
 pub struct Receiver {
     handle: Handle,
     rx: mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
@@ -124,6 +152,8 @@ pub struct Receiver {
 }
 
 impl Receiver {
+    /// Connect the given interface and initializes the adapter to the given bitrate (if required).
+    /// For nameing interafaces, refer to the [module documentation](crate::pcan).
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let handle = connect_handle(ifname, bitrate)?;
         Self::start_receive(handle)
@@ -181,10 +211,13 @@ impl Receiver {
         })
     }
 
+    /// Try to receive a message from the CAN bus
     pub async fn recv(&mut self) -> Result<Message> {
         self.recv_with_timestamp().await.map(|(msg, _)| msg)
     }
 
+    /// Try to receive a message from the CAN bus, returning a message and an associated [crate::Timestamp] when the
+    /// message was received.
     pub async fn recv_with_timestamp(&mut self) -> Result<(Message, Timestamp)> {
         match self.rx.recv().await {
             Some(msg) => msg,
@@ -192,6 +225,7 @@ impl Receiver {
         }
     }
 
+    /// Close the device and drop the underlying handle.
     pub fn close(mut self) -> Result<()> {
         self.rx.close();
         Ok(())
@@ -211,12 +245,15 @@ impl Drop for Receiver {
     }
 }
 
+/// Collects information of devices connected to the host
 #[derive(Clone, Debug)]
 pub struct DeviceInfo {
     handle: Handle,
 }
 
 impl DeviceInfo {
+    /// Returns the interface name that can be passed to [`Receiver`] and [`Sender`] types.
+    /// For more information on interface names, refer to the [module documentation](crate::pcan).
     pub fn interface_name(&self) -> crate::Result<String> {
         if self.handle >= sys::PCAN_USBBUS1 as Handle && self.handle <= sys::PCAN_USBBUS8 as Handle
         {
@@ -232,6 +269,7 @@ impl DeviceInfo {
     }
 }
 
+/// Retrieve all PCAN devices connected the host
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
     spawn_blocking(PCan::list_devices)
         .await

@@ -94,7 +94,7 @@ pub const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;
 /// Maximum value for CAN ID if standard 11-bit ID is selected
 pub const CAN_STD_ID_MASK: u32 = 0x7FF;
 
-// Maximum data length or dlc in a CAN message
+/// Maximum data length or dlc in a CAN message
 pub const CAN_MAX_DLC: usize = 8;
 
 pub(crate) mod base {
@@ -307,6 +307,7 @@ impl CanFrameError {
     }
 }
 
+/// This enum encodes errors/warning that may occur on the CAN bus
 #[derive(Error, Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum BusError {
