@@ -23,6 +23,8 @@ use crate::{DeviceInfo, Result};
 use crate::{Message, Timestamp};
 use mio::{Interest, Registry, Token};
 
+use async_trait::async_trait;
+
 mod sys;
 
 /// A type that connects to CAN socket
@@ -203,6 +205,13 @@ impl Sender {
     }
 }
 
+#[async_trait]
+impl crate::Sender for Sender {
+    async fn send(&mut self, msg: Message) -> Result<()> {
+        self.send(msg).await
+    }
+}
+
 impl Receiver {
     /// Bind to a SocketCAN interface
     pub fn connect(ifname: String) -> Result<Self> {
@@ -235,6 +244,13 @@ impl Receiver {
             micros: (Instant::now() - self.start).as_micros() as u64,
         };
         Ok((msg, timestamp))
+    }
+}
+
+#[async_trait]
+impl crate::Receiver for Receiver {
+    async fn recv(&mut self) -> Result<Message> {
+        self.recv().await
     }
 }
 
