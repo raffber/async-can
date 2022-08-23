@@ -1,5 +1,8 @@
 # async-can - Asynchronous CAN Stack running on tokio
 
+[![Rust Stable](https://github.com/raffber/async-can/actions/workflows/ci.yml/badge.svg)](https://github.com/raffber/async-can/actions/workflows/ci.yml)
+
+
 Library to connect to CAN buses. Currently supports:
 
  * `SocketCAN` on linux-only

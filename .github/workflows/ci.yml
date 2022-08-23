@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ '*' ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Clang
+      run: apt-get update && apt-get install --yes libclang1
+
+    - name: Restore cargo cache
+      uses: actions/cache@v2
+      env:
+        cache-name: ci
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          ~/.cargo/bin
+          target
+        key: ubuntu-${{ env.cache-name }}-${{ hashFiles('Cargo.lock') }}
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        default: true
+        profile: minimal
+        components: clippy, rustfmt
+    
+    - name: Build Debug
+      run: cargo build
+
+    - name: Run tests
+      run: cargo test
+
+    - name: Run clippy
+      run: cargo clippy
+
+    - name: Check formatting
+      run: cargo fmt -- --check
