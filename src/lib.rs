@@ -72,11 +72,6 @@
 //!
 #![allow(dead_code)]
 
-#[macro_use]
-extern crate dlopen_derive;
-#[macro_use]
-extern crate lazy_static;
-
 use async_trait::async_trait;
 use std::io;
 use std::result::Result as StdResult;

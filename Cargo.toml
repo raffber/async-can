@@ -9,20 +9,20 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 async-trait = "0.1.57"
 byteorder = { version = "1.4", optional = true }
-dlopen = "0.1.8"
-dlopen_derive = "0.1.4"
-lazy_static = "1"
+dlopen = { version = "0.1.8", optional = true }
+dlopen_derive = { version = "0.1.4", optional = true }
+lazy_static = { version = "1", optional = true }
 log = "0.4"
 serde = { version = "1", features = ["derive"], optional = true }
-tempfile = "3.1"
+tempfile = { version = "3.1", optional = true }
 thiserror = "1"
 tokio = { version = "1", features = ["sync", "time", "rt", "net", "macros", "io-util"] }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
-mio = { version = "0.7", features = ["os-ext"] }
-futures = "0.3"
-rtnetlink = "0.11"
+libc = { version = "0.2" }
+mio = { version = "0.7", features = ["os-ext"], optional = true }
+futures = { version = "0.3", optional = true }
+rtnetlink = { version = "0.11", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 lazy_static = "1.4.0"
@@ -36,7 +36,7 @@ tokio-test = "0.4"
 
 [features]
 default = ["pcan", "socket_can", "usr_canet"]
-pcan = []
-socket_can = []
+pcan = ["dep:dlopen", "dep:dlopen_derive", "dep:lazy_static", "dep:tempfile"]
+socket_can = ["dep:mio", "dep:futures", "dep:rtnetlink"]
 usr_canet = ["dep:byteorder"]
 serde = ["dep:serde"]

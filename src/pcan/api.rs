@@ -13,7 +13,8 @@ use std::os::unix::prelude::RawFd;
 use super::{sys, DeviceInfo};
 use crate::{CanFrameError, Message};
 use dlopen::wrapper::{Container, WrapperApi};
-use lazy_static;
+use dlopen_derive::WrapperApi;
+use lazy_static::lazy_static;
 use std::os::raw::c_char;
 use tempfile::NamedTempFile;
 
