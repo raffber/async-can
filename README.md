@@ -24,6 +24,23 @@ This library is far from feature-complete. The following provides a list of feat
 
 PRs are very much welcome for all those features or anything else related.
 
+
+## Crate Features
+
+Support for CAN devices / driver can be switched on and off:
+
+ * For `SocketCAN`, use `features = ["socket_can"]`
+ * For `PCAN`, use `features = ["pcan"]`
+ * For `USR-CANET200`, use `features = ["usr_canet"]`
+
+By default, the features are set to `default = ["pcan", "socket_can", "usr_canet"]`.
+
+If you want to be able to serialize some of the types in this crate, you can enable the optional `serde` feature: 
+
+//! ```toml
+//! async-can = {version = "*", features = ["serde"]}
+//! ```
+
 ## License
 
 Licensed under either of

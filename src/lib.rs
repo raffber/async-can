@@ -64,7 +64,7 @@
 //! ## Serde Support
 //!
 //! ```toml
-//! async-can = {version = "*", features = [serde]}
+//! async-can = {version = "*", features = ["serde"]}
 //! ```
 //!
 //! This allows serializing the [`Message`] and related type.
