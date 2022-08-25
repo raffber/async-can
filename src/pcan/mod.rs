@@ -166,6 +166,7 @@ impl Receiver {
     ) {
         loop {
             if tx.is_closed() {
+                log::debug!("Channel closed, quitting.");
                 break;
             }
             let (err, data) = PCan::read(handle);
@@ -175,9 +176,13 @@ impl Receiver {
                     err.description(),
                 ))),
                 Some(err) if err.rx_empty() | err.rx_overflow() => match waiter.wait_for_event() {
-                    Ok(true) => continue,
-                    Ok(false) => break,
+                    Ok(false) => continue,
+                    Ok(true) => {
+                        log::debug!("Waker cancelled!");
+                        break;
+                    }
                     Err(x) => {
+                        log::debug!("Error occurred, quitting receiver: {:?}", x);
                         let _ = tx.send(Err(x)).is_err();
                         break;
                     }
@@ -187,17 +192,20 @@ impl Receiver {
             };
             if let Some(x) = to_send {
                 if tx.send(x).is_err() {
+                    log::debug!("Channel closed, quitting.");
                     break;
                 }
             }
             if let Some((msg, timestamp)) = data {
                 if let Ok(msg) = msg.into_message() {
                     if tx.send(Ok((msg, timestamp.into()))).is_err() {
+                        log::debug!("Channel closed, quitting.");
                         break;
                     }
                 }
             }
         }
+        log::debug!("Leaving receiver.");
     }
 
     fn start_receive(handle: Handle) -> crate::Result<Self> {
@@ -221,7 +229,7 @@ impl Receiver {
     pub async fn recv_with_timestamp(&mut self) -> Result<(Message, Timestamp)> {
         match self.rx.recv().await {
             Some(msg) => msg,
-            None => Err(crate::Error::InvalidBitRate),
+            None => Err(crate::Error::Other("Receiver disconnected.".to_string())),
         }
     }
 

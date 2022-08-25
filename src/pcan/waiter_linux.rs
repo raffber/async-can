@@ -73,13 +73,11 @@ impl Waiter {
                     data.len(),
                 );
             }
-            return Ok(self.cancel.load(Ordering::SeqCst));
         }
         if polls[0].revents != 0 {
             // this was an event for CAN file
-            return Ok(false);
         }
-        Ok(false)
+        Ok(self.cancel.load(Ordering::SeqCst))
     }
 }
 
