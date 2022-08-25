@@ -208,7 +208,7 @@ impl Sender {
 #[async_trait]
 impl crate::Sender for Sender {
     async fn send(&mut self, msg: Message) -> Result<()> {
-        self.send(msg).await
+        self.socket.send(msg).await
     }
 }
 
@@ -250,7 +250,7 @@ impl Receiver {
 #[async_trait]
 impl crate::Receiver for Receiver {
     async fn recv(&mut self) -> Result<Message> {
-        self.recv().await
+        Ok(self.socket.recv().await?)
     }
 }
 
