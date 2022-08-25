@@ -85,6 +85,8 @@ use thiserror::Error;
 #[cfg(feature = "usr_canet")]
 pub mod usr_canet;
 
+pub mod loopback;
+
 #[cfg(feature = "serde")]
 use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize};
 

@@ -1,3 +1,6 @@
+//! This module implements the low-level SocketCAN bindings, in this case
+//! just the C-ABI structures that are "serialized" onto the socket
+
 use std::os::raw::{c_int, c_short};
 
 use crate::Message::Remote;

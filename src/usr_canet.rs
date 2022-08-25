@@ -1,3 +1,8 @@
+//! This module implements support for the USR-CANET200 protocol support for the respective devices from [USR-IOT](https://www.pusr.com/products/can-to-ethernet-converters-usr-canet200.html)
+//!
+//! The manual describing the protocol is [here](https://www.pusr.com/products/can-to-ethernet-converters-usr-canet200.html).
+//! It's a very simple protocol for framing CAN messages on TCP without support for CAN-FD.
+
 use crate::Message;
 use async_trait::async_trait;
 use byteorder::{BigEndian, ByteOrder};
@@ -8,14 +13,21 @@ use tokio::net::{
     TcpStream,
 };
 
+/// A sender for the USR-CANET200 device. Implements [`crate::Sender`].
+///
+/// Contains the write half of the TCP stream.
 pub struct Sender {
     stream: OwnedWriteHalf,
 }
 
+/// A receiver for the USR-CANET200 device. Implements [`crate::Receiver`].
+///
+/// Contains the read half of the TCP stream.
 pub struct Receiver {
     stream: OwnedReadHalf,
 }
 
+/// Construct a sender and receiver by connecting a TCP stream to the given device.
 pub async fn connect<A: ToSocketAddrs>(addr: A) -> crate::Result<(Sender, Receiver)> {
     let stream = TcpStream::connect(addr).await?;
     let (read, write) = stream.into_split();
