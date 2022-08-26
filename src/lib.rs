@@ -98,7 +98,7 @@ pub(crate) mod base {
     #[cfg(feature = "serde")]
     use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub(crate) struct DataFrame {
         pub(crate) id: u32,
@@ -106,7 +106,7 @@ pub(crate) mod base {
         pub(crate) data: Vec<u8>,
     }
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub(crate) struct RemoteFrame {
         pub(crate) id: u32,
@@ -116,7 +116,7 @@ pub(crate) mod base {
 }
 
 /// A CAN data frame, i.e. the RTR bit is set to 0
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataFrame(base::DataFrame);
 
@@ -165,7 +165,7 @@ impl DataFrame {
 
 /// A CAN remote frame, i.e. the RTR bit is set to 1. Also, this type of frame
 ///  does not have a data field.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RemoteFrame(base::RemoteFrame);
 
@@ -219,7 +219,7 @@ pub struct Timestamp {
 /// A message on the CAN bus, either a [`DataFrame`] or a [`RemoteFrame`].
 ///
 /// In the future this will also contain a CAN-FD frame type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Message {
     Data(DataFrame),
@@ -386,4 +386,23 @@ pub struct DeviceInfo {
     pub interface_name: String,
     pub is_ready: bool,
     pub index: u32,
+}
+
+#[cfg(test)]
+mod test {
+    use crate::CanFrameError;
+
+    #[test]
+    fn validate_id() {
+        assert!(CanFrameError::validate_id(1 << 28, true).is_ok());
+        assert!(matches!(
+            CanFrameError::validate_id(1 << 29, true),
+            Err(CanFrameError::IdTooLong)
+        ));
+        assert!(CanFrameError::validate_id(1 << 10, false).is_ok());
+        assert!(matches!(
+            CanFrameError::validate_id(1 << 11, false),
+            Err(CanFrameError::IdTooLong)
+        ));
+    }
 }

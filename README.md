@@ -37,9 +37,9 @@ By default, the features are set to `default = ["pcan", "socket_can", "usr_canet
 
 If you want to be able to serialize some of the types in this crate, you can enable the optional `serde` feature: 
 
-//! ```toml
-//! async-can = {version = "*", features = ["serde"]}
-//! ```
+```toml
+async-can = {version = "*", features = ["serde"]}
+```
 
 ## License
 

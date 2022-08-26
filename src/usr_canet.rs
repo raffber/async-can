@@ -45,7 +45,7 @@ impl crate::Sender for Sender {
         BigEndian::write_u32(&mut buf[1..], msg.id());
         match msg {
             Message::Data(msg) => {
-                buf[5..].copy_from_slice(msg.data());
+                buf[5..5 + msg.dlc() as usize].copy_from_slice(msg.data());
             }
             Message::Remote(msg) => {
                 buf[0] |= 0x40;
@@ -72,5 +72,40 @@ impl crate::Receiver for Receiver {
             Message::new_data(id, ext_id, &buf[5..5 + (dlc as usize)])?
         };
         Ok(ret)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        task,
+    };
+
+    use crate::{Message, Receiver, Sender};
+
+    #[tokio::test]
+    async fn round_trip() {
+        let listener = TcpListener::bind("127.0.0.1:1234").await.unwrap();
+        task::spawn(async move {
+            let (mut connection, _) = listener.accept().await.unwrap();
+            while let Ok(x) = connection.read_u8().await {
+                if connection.write_u8(x).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let (mut tx, mut rx) = super::connect("127.0.0.1:1234").await.unwrap();
+
+        let tx_msg = Message::new_data(0xABCDEF, true, &[1, 2, 3, 4]).unwrap();
+        tx.send(tx_msg.clone()).await.unwrap();
+        let rx_msg = rx.recv().await.unwrap();
+        assert_eq!(tx_msg, rx_msg);
+
+        let tx_msg = Message::new_remote(0x123456, true, 3).unwrap();
+        tx.send(tx_msg.clone()).await.unwrap();
+        let rx_msg = rx.recv().await.unwrap();
+        assert_eq!(tx_msg, rx_msg);
     }
 }
