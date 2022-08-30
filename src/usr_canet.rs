@@ -30,6 +30,7 @@ pub struct Receiver {
 /// Construct a sender and receiver by connecting a TCP stream to the given device.
 pub async fn connect<A: ToSocketAddrs>(addr: A) -> crate::Result<(Sender, Receiver)> {
     let stream = TcpStream::connect(addr).await?;
+    stream.set_nodelay(true)?;
     let (read, write) = stream.into_split();
     let sender = Sender { stream: write };
     let receiver = Receiver { stream: read };
