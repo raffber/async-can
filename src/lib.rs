@@ -161,6 +161,9 @@ impl DataFrame {
     pub fn dlc(&self) -> u8 {
         self.0.data.len() as u8
     }
+    pub fn take_data(self) -> Vec<u8> {
+        self.0.data
+    }
 }
 
 /// A CAN remote frame, i.e. the RTR bit is set to 1. Also, this type of frame
