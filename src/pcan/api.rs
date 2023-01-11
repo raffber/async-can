@@ -223,11 +223,11 @@ impl PCan {
     }
 
     pub fn describe_status(status: u32) -> String {
+        let mut data: MaybeUninit<[c_char; 512]> = MaybeUninit::uninit();
         unsafe {
-            #[allow(clippy::uninit_assumed_init)]
-            let mut data: [c_char; 512] = MaybeUninit::uninit().assume_init();
-            PCAN.api.CAN_GetErrorText(status, 0x00, data.as_mut_ptr());
-            let ret = CStr::from_ptr(data.as_ptr());
+            PCAN.api
+                .CAN_GetErrorText(status, 0x00, data.as_mut_ptr() as *mut c_char);
+            let ret = CStr::from_ptr(data.as_ptr() as *const c_char);
             ret.to_str().unwrap().to_string()
         }
     }
@@ -345,6 +345,7 @@ impl PCan {
     }
 
     pub fn list_devices() -> Result<Vec<DeviceInfo>, Error> {
+        let channel_info = MaybeUninit::<sys::TPCANChannelInformation>::uninit();
         let infos = unsafe {
             let mut channel_count = 0_u32;
             let status = PCAN.api.CAN_GetValue(
@@ -355,8 +356,6 @@ impl PCan {
             );
             Error::result(status)?;
 
-            #[allow(clippy::uninit_assumed_init)]
-            let channel_info = MaybeUninit::<sys::TPCANChannelInformation>::uninit().assume_init();
             let mut infos = vec![channel_info; channel_count as usize];
             let ptr = infos.as_mut_ptr() as *mut c_void;
             let len = (channel_count as usize * std::mem::size_of::<sys::TPCANChannelInformation>())
@@ -372,8 +371,10 @@ impl PCan {
         };
         Ok(infos
             .iter()
-            .map(|x| DeviceInfo {
-                handle: x.channel_handle,
+            .map(|x| unsafe {
+                DeviceInfo {
+                    handle: x.assume_init().channel_handle,
+                }
             })
             .collect())
     }
