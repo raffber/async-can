@@ -103,8 +103,8 @@ impl CanSocket {
     }
 
     /// Try to send a [`crate::Message`] to the CAN bus
-    pub async fn send(&self, msg: Message) -> crate::Result<()> {
-        let frame: CanFrame = CanFrame::from_message(msg)?;
+    pub async fn send(&self, msg: Message) -> io::Result<()> {
+        let frame: CanFrame = CanFrame::from(msg);
         let ret = poll_fn(|cx| self.poll_write(cx, &frame)).await;
         Ok(ret?)
     }
@@ -200,7 +200,7 @@ impl Sender {
     }
 
     /// Send a message to the bus
-    pub async fn send(&self, msg: Message) -> Result<()> {
+    pub async fn send(&self, msg: Message) -> io::Result<()> {
         self.socket.send(msg).await
     }
 }
@@ -208,7 +208,7 @@ impl Sender {
 #[async_trait]
 impl crate::Sender for Sender {
     async fn send(&mut self, msg: Message) -> Result<()> {
-        self.socket.send(msg).await
+        Ok(self.socket.send(msg).await?)
     }
 }
 
@@ -231,7 +231,7 @@ impl Receiver {
     }
 
     /// Receive a message from the CAN bus
-    pub async fn recv(&self) -> Result<Message> {
+    pub async fn recv(&self) -> io::Result<Message> {
         Ok(self.socket.recv().await?)
     }
 

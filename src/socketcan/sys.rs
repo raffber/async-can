@@ -71,8 +71,10 @@ impl CanFrame {
             data: [0_u8; CAN_MAX_DLEN],
         })
     }
+}
 
-    pub(crate) fn from_message(msg: Message) -> Result<Self, CanFrameError> {
+impl From<Message> for CanFrame {
+    fn from(msg: Message) -> Self {
         let mut id = msg.id();
         if msg.ext_id() {
             id |= CAN_EFF_FLAG;
@@ -81,25 +83,25 @@ impl CanFrame {
             Message::Data(msg) => {
                 let mut can_data = [0_u8; CAN_MAX_DLEN];
                 can_data[0..msg.data().len()].copy_from_slice(msg.data());
-                Ok(CanFrame {
+                CanFrame {
                     id,
                     dlc: msg.data().len() as u8,
                     pad: 0,
                     res0: 0,
                     res1: 0,
                     data: can_data,
-                })
+                }
             }
             Remote(msg) => {
                 id |= CAN_RTR_FLAG;
-                Ok(CanFrame {
+                CanFrame {
                     id,
                     dlc: msg.dlc(),
                     pad: 0,
                     res0: 0,
                     res1: 0,
                     data: [0_u8; CAN_MAX_DLEN],
-                })
+                }
             }
         }
     }
