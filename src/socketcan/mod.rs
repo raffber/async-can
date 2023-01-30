@@ -86,7 +86,7 @@ impl CanSocket {
     }
 
     /// Try to receive a [`crate::Message`] from the CAN bus
-    async fn recv(&self) -> io::Result<Message> {
+    pub async fn recv(&self) -> io::Result<Message> {
         poll_fn(|cx| self.poll_read(cx)).await
     }
 
