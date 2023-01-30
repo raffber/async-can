@@ -5,9 +5,7 @@ use std::io::{self, ErrorKind};
 use std::mem::{size_of, MaybeUninit};
 use std::os::raw::{c_int, c_short};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Instant;
 
 use futures::future::poll_fn;
 use futures::{ready, TryStreamExt};
@@ -19,8 +17,8 @@ use rtnetlink::packet::nlas::link::{Info, InfoKind, Nla, State};
 use tokio::io::unix::AsyncFd;
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
+use crate::Message;
 use crate::{DeviceInfo, Result};
-use crate::{Message, Timestamp};
 use mio::{Interest, Registry, Token};
 
 use async_trait::async_trait;
@@ -118,6 +116,16 @@ impl CanSocket {
             }
         }
     }
+
+    pub fn try_clone(&self) -> io::Result<Self> {
+        let new_fd = unsafe { libc::dup(self.as_raw_fd()) };
+        if new_fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            inner: AsyncFd::new(new_fd)?,
+        })
+    }
 }
 
 fn write_to_fd(fd: RawFd, frame: &CanFrame) -> io::Result<()> {
@@ -167,90 +175,17 @@ impl Source for CanSocket {
     }
 }
 
-/// Allows sending messages to the CAN bus
-#[derive(Clone)]
-pub struct Sender {
-    socket: Arc<CanSocket>,
-}
-
-/// Allows receiving messages from the CAN bus
-pub struct Receiver {
-    socket: CanSocket,
-
-    // receiving messages with hardware timestamps is currently not supported.
-    // we use an Instant to polyfill the missing functionality
-    // in the future this may be implemented with netlink sockets
-    start: Instant,
-}
-
-impl Sender {
-    /// Bind to a SocketCAN interface
-    pub fn connect(ifname: String) -> Result<Self> {
-        let socket = CanSocket::bind(ifname)?;
-        Ok(Sender {
-            socket: Arc::new(socket),
-        })
-    }
-
-    /// Create a [`Sender`] from an existing [`CanSocket`]
-    pub fn from_socket(socket: CanSocket) -> Self {
-        Self {
-            socket: Arc::new(socket),
-        }
-    }
-
-    /// Send a message to the bus
-    pub async fn send(&self, msg: Message) -> io::Result<()> {
-        self.socket.send(msg).await
-    }
-}
-
 #[async_trait]
-impl crate::Sender for Sender {
+impl crate::Sender for CanSocket {
     async fn send(&mut self, msg: Message) -> Result<()> {
-        Ok(self.socket.send(msg).await?)
-    }
-}
-
-impl Receiver {
-    /// Bind to a SocketCAN interface
-    pub fn connect(ifname: String) -> Result<Self> {
-        let socket = CanSocket::bind(ifname)?;
-        Ok(Receiver {
-            socket,
-            start: Instant::now(),
-        })
-    }
-
-    /// Create a [`Receiver`] from an existing [`CanSocket`]
-    pub fn from_socket(socket: CanSocket) -> Self {
-        Self {
-            socket,
-            start: Instant::now(),
-        }
-    }
-
-    /// Receive a message from the CAN bus
-    pub async fn recv(&self) -> io::Result<Message> {
-        Ok(self.socket.recv().await?)
-    }
-
-    /// Receive a message from the CAN bus including a timestamp when the message was received.
-    ///
-    /// NOTE: This is not yet properly implemented and will use simple polyfill using `Instant::now()`
-    pub async fn recv_with_timestamp(&self) -> Result<(Message, Timestamp)> {
-        let msg = self.socket.recv().await?;
-        let timestamp = Timestamp {
-            micros: (Instant::now() - self.start).as_micros() as u64,
-        };
-        Ok((msg, timestamp))
+        Ok(self.send(msg).await?)
     }
 }
 
 #[async_trait]
-impl crate::Receiver for Receiver {
+impl crate::Receiver for CanSocket {
     async fn recv(&mut self) -> Result<Message> {
-        Ok(self.socket.recv().await?)
+        Ok(self.recv().await?)
     }
 }
 
