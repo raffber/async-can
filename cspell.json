@@ -5,7 +5,6 @@
   "dictionaries": ["rust", "softwareTerms", "bash", "docker", "companies"],
   "ignorePaths": [
     ".git",
-    ".idea",
     "target",
     "lib",
     "include",
