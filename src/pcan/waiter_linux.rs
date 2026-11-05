@@ -28,6 +28,11 @@ impl Waiter {
     pub(crate) fn new(handle: Handle) -> crate::Result<(Self, WaiterHandle)> {
         let fd = PCan::get_fd(handle)
             .map_err(|x| crate::Error::PCanInitFailed(x.code, x.description()))?;
+        Self::with_fd(handle, fd)
+    }
+
+    /// Creates a waiter that waits for `fd` to become readable.
+    fn with_fd(handle: Handle, fd: RawFd) -> crate::Result<(Self, WaiterHandle)> {
         let eventfd = unsafe { libc::eventfd(0, 0) };
         if eventfd == -1 {
             return Err(crate::Error::Io(std::io::Error::last_os_error()))?;
@@ -91,7 +96,8 @@ impl Drop for Waiter {
 
 impl WaiterHandle {
     pub(crate) fn close(&mut self) {
-        let data = [0_u8; 8];
+        // Writing adds the value to the eventfd counter, which wakes poll() only if it's non-zero.
+        let data = 1_u64.to_ne_bytes();
         self.cancel.store(true, Ordering::SeqCst);
         unsafe {
             libc::write(
@@ -99,6 +105,37 @@ impl WaiterHandle {
                 &data as *const u8 as *const c_void,
                 data.len(),
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::{sync::mpsc, thread, time::Duration};
+
+    #[test]
+    fn close_wakes_waiter() {
+        // A pipe that never becomes readable stands in for the PCAN driver's fd.
+        let mut pipe = [0; 2];
+        assert_eq!(unsafe { libc::pipe(pipe.as_mut_ptr()) }, 0);
+        let (waiter, mut handle) = Waiter::with_fd(0, pipe[0]).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(waiter.wait_for_event().unwrap());
+        });
+        // Give the thread time to block in poll().
+        thread::sleep(Duration::from_millis(50));
+        handle.close();
+
+        let cancelled = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("close() did not wake the waiter");
+        assert!(cancelled);
+        unsafe {
+            libc::close(pipe[0]);
+            libc::close(pipe[1]);
         }
     }
 }
