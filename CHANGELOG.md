@@ -24,6 +24,10 @@ Versions up to 0.3.0 were neither tagged nor published to crates.io. Their dates
 
 - `socketcan::CanSocket` no longer leaks its file descriptor if binding the socket fails.
 - `socketcan::CanSocket` no longer reads an uninitialized frame if `read()` fails.
+- `usr_canet::Receiver` returns `Error::DataTooLong` instead of panicking on frames with a DLC above 8.
+- Dropping a `pcan::Receiver` on Linux now stops its receive thread even if no further frames arrive.
+- The PCAN receive thread on Linux no longer exits when `poll()` is interrupted by a signal.
+- Building with the `pcan` feature on 32-bit Linux.
 
 ## [0.3.0] - 2023-01-11
 
