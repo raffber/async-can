@@ -36,6 +36,7 @@ Versions up to 0.3.0 were neither tagged nor published to crates.io. Their dates
 - PCAN receive timestamps no longer wrap around after about 49.7 days.
 - The bundled PCAN library is no longer left behind in the temp directory on every start. On Linux, it is deleted after loading. On Windows, one copy per library version is extracted and reused.
 - PCAN receive overruns are logged as a warning, and the receiver keeps reading the queue instead of waiting for the next frame. A receive queue overrun no longer produces a `PCanReadFailed` error.
+- `pcan::Sender::send()` returns `Error::TransmitQueueFull` when the transmit queue is full, instead of `Error::PCanWriteFailed`.
 
 ## [0.3.0] - 2023-01-11
 

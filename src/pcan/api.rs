@@ -225,7 +225,7 @@ impl Error {
         self.code
             & !(sys::PCAN_ERROR_ANYBUSERR
                 | sys::PCAN_ERROR_XMTFULL
-                | sys::PCAN_ERROR_XMTFULL
+                | sys::PCAN_ERROR_QXMTFULL
                 | sys::PCAN_ERROR_OVERRUN
                 | sys::PCAN_ERROR_QOVERRUN
                 | sys::PCAN_ERROR_QRCVEMPTY)
@@ -236,7 +236,7 @@ impl Error {
     }
 
     pub fn tx_overflow(&self) -> bool {
-        self.code & sys::PCAN_ERROR_XMTFULL > 0
+        self.code & (sys::PCAN_ERROR_XMTFULL | sys::PCAN_ERROR_QXMTFULL) > 0
     }
 
     pub fn rx_empty(&self) -> bool {
@@ -561,6 +561,26 @@ mod test {
         assert!(!PCan::describe_status(sys::PCAN_ERROR_QRCVEMPTY).is_empty());
         // Unknown codes make CAN_GetErrorText fail.
         assert!(!PCan::describe_status(0xDEAD_BEEF).is_empty());
+    }
+
+    #[test]
+    fn status_classification() {
+        for code in [sys::PCAN_ERROR_XMTFULL, sys::PCAN_ERROR_QXMTFULL] {
+            let err = Error::new(code).unwrap();
+            assert_eq!(err.other_error(), 0, "{code:#x}");
+            assert!(err.tx_overflow(), "{code:#x}");
+        }
+        for code in [sys::PCAN_ERROR_OVERRUN, sys::PCAN_ERROR_QOVERRUN] {
+            let err = Error::new(code).unwrap();
+            assert_eq!(err.other_error(), 0, "{code:#x}");
+            assert!(err.rx_overflow(), "{code:#x}");
+        }
+        let err = Error::new(sys::PCAN_ERROR_QRCVEMPTY).unwrap();
+        assert!(err.rx_empty() && err.other_error() == 0);
+        let err = Error::new(sys::PCAN_ERROR_BUSOFF).unwrap();
+        assert!(err.bus_error() != 0 && err.other_error() == 0);
+        let err = Error::new(sys::PCAN_ERROR_ILLHW).unwrap();
+        assert_ne!(err.other_error(), 0);
     }
 
     #[test]
