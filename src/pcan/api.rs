@@ -344,18 +344,24 @@ impl PCan {
     }
 
     pub fn read(channel: Handle) -> (Option<Error>, Option<(PCanMessage, Timestamp)>) {
-        let (err, msg, timestamp) = unsafe {
-            let mut msg = MaybeUninit::<PCanMessage>::uninit();
-            let mut timestamp = MaybeUninit::<Timestamp>::uninit();
-            let status = PCAN
-                .api
-                .CAN_Read(channel, msg.as_mut_ptr(), timestamp.as_mut_ptr());
-            let msg = msg.assume_init();
-            let timestamp = timestamp.assume_init();
-            (Error::new(status), msg, timestamp)
+        // The driver only writes `msg` and `timestamp` if it read a message. Pre-set the message
+        // type to "status", which is filtered out below, so nothing is forwarded otherwise.
+        let mut msg = PCanMessage {
+            id: 0,
+            tp: sys::PCAN_MESSAGE_STATUS as u8,
+            len: 0,
+            data: [0; 8],
         };
-        if msg.tp & 0x03 > 0 || msg.tp == 0 {
-            // rtr, std, ext
+        let mut timestamp = Timestamp {
+            millis: 0,
+            millis_overflow: 0,
+            micros: 0,
+        };
+        let status = unsafe { PCAN.api.CAN_Read(channel, &mut msg, &mut timestamp) };
+        let err = Error::new(status);
+        // Only forward standard, extended and RTR frames, no status or error frames.
+        let frame_bits = (sys::PCAN_MESSAGE_EXTENDED | sys::PCAN_MESSAGE_RTR) as u8;
+        if msg.tp & !frame_bits == 0 {
             (err, Some((msg, timestamp)))
         } else {
             (err, None)
