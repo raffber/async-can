@@ -1,8 +1,8 @@
 //! Implements an async interface to the Linux SocketCAN
 
-use std::ffi::{c_void, CString};
+use std::ffi::{CString, c_void};
 use std::io::{self, ErrorKind};
-use std::mem::{size_of, MaybeUninit};
+use std::mem::{MaybeUninit, size_of};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::task::{Context, Poll};
 
@@ -11,8 +11,8 @@ use std::task::ready;
 
 use futures::TryStreamExt;
 use libc::{can_frame, sockaddr, sockaddr_can};
-use rtnetlink::packet_route::link::{InfoKind, LinkAttribute, LinkInfo, State};
 use rtnetlink::LinkUnspec;
+use rtnetlink::packet_route::link::{InfoKind, LinkAttribute, LinkInfo, State};
 use tokio::io::unix::AsyncFd;
 
 use crate::Message;

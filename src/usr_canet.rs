@@ -9,8 +9,8 @@ use byteorder::{BigEndian, ByteOrder};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::ToSocketAddrs;
 use tokio::net::{
-    tcp::{OwnedReadHalf, OwnedWriteHalf},
     TcpStream,
+    tcp::{OwnedReadHalf, OwnedWriteHalf},
 };
 
 /// A sender for the USR-CANET200 device. Implements [`crate::Sender`].

@@ -2,8 +2,8 @@ use std::ptr::{null, null_mut};
 
 use super::api::PCan;
 use crate::pcan::api::Handle;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Foundation::{CloseHandle, WAIT_FAILED};
 use windows_sys::Win32::System::Threading::{CreateEventA, SetEvent, WaitForSingleObject};

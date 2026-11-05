@@ -1,7 +1,7 @@
 //! This module implements "dummy" loopback deviec. This is mostly intended for testing.
 
 use async_trait::async_trait;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::Message;
 
