@@ -71,6 +71,7 @@ fn parse_ifname(ifname: &str) -> Result<Handle> {
 }
 
 fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
+    PCan::load()?;
     let _ = get_baud(bitrate)?;
     let handle = parse_ifname(ifname)?;
     if let Err(err) = PCan::initialize(handle, bitrate, sys::PCAN_TYPE_ISA as u8, IOPORT, INTERRUPT)
@@ -83,6 +84,7 @@ fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
 /// Attempt to de-initialize an interface, thus disconnecting from the CAN bus
 pub async fn deinitialize(ifname: &str) -> Result<()> {
     let handle = parse_ifname(ifname)?;
+    PCan::load()?;
     task::spawn_blocking(move || match PCan::uninitialize(handle) {
         Ok(_) => Ok(()),
         Err(err) => {
@@ -278,6 +280,7 @@ impl DeviceInfo {
 
 /// Retrieve all PCAN devices connected to the host
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
+    PCan::load()?;
     spawn_blocking(PCan::list_devices)
         .await
         .unwrap()

@@ -330,6 +330,8 @@ pub enum Error {
     InvalidInterfaceAddress,
     #[error("Invalid bitrate")]
     InvalidBitRate,
+    #[error("Failed to load the PCAN library: {0}")]
+    PCanLibraryLoad(String),
     #[error("PCAN Init Failed with code {0}: `{1}`")]
     PCanInitFailed(u32, String),
     #[error("Write failed with code {0}: `{1}`")]

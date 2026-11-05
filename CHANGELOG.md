@@ -19,11 +19,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - SocketCAN uses the `libc` definitions of `can_frame` and `sockaddr_can` instead of hand-written structs.
 - Updated dependencies: `rtnetlink` 0.24, `windows-sys` 0.61, `thiserror` 2. The unmaintained `dlopen` crate is replaced with `libloading`, and `lazy_static` with `std::sync::LazyLock`.
 - Added crates.io metadata to `Cargo.toml`.
+- **Breaking:** New `Error::PCanLibraryLoad` variant.
 
 ### Fixed
 
 - `socketcan::CanSocket` no longer leaks its file descriptor if binding the socket fails.
 - `socketcan::CanSocket` no longer reads an uninitialized frame if `read()` fails.
+- PCAN functions return `Error::PCanLibraryLoad` instead of panicking if the PCAN library cannot be loaded, e.g. on non-x86-64 Linux or when the temp directory is not writable or mounted `noexec`.
+- `usr_canet::Receiver` returns `Error::DataTooLong` instead of panicking on frames with a DLC above 8.
+- Dropping a `pcan::Receiver` on Linux now stops its receive thread even if no further frames arrive.
+- The PCAN receive thread on Linux no longer exits when `poll()` is interrupted by a signal.
+- Building with the `pcan` feature on 32-bit Linux.
 
 ## [0.3.0] - 2023-01-11
 

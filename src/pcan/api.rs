@@ -129,7 +129,7 @@ pub struct Timestamp {
 /// Generates the [`Api`] struct holding the loaded library and its function pointers.
 ///
 /// Each function is also exposed as an `unsafe` method of the same name, so call sites read
-/// like `PCAN.api.CAN_Read(...)`.
+/// like `pcan().api.CAN_Read(...)`.
 macro_rules! pcan_api {
     ($($name:ident: fn($($arg:ident: $ty:ty),* $(,)?) $(-> $ret:ty)?;)*) => {
         struct Api {
@@ -176,7 +176,16 @@ pcan_api! {
     CAN_GetValue: fn(channel: Handle, param: u8, buf: *mut c_void, len: u32) -> Status;
 }
 
-static PCAN: LazyLock<PCan> = LazyLock::new(PCan::new);
+static PCAN: LazyLock<Result<PCan, String>> = LazyLock::new(PCan::new);
+
+/// Returns the loaded library.
+///
+/// Panics if loading failed. All public entry points call [`PCan::load()`] first, so this
+/// cannot happen through the public API.
+fn pcan() -> &'static PCan {
+    PCAN.as_ref()
+        .expect("PCAN library used without a successful PCan::load()")
+}
 
 pub struct Error {
     pub code: u32,
@@ -234,20 +243,36 @@ pub struct PCan {
 }
 
 impl PCan {
-    pub fn new() -> Self {
-        let mut tmpfile = NamedTempFile::new().unwrap();
-        tmpfile.write_all(PCAN_LIB).unwrap();
-        let (_, path) = tmpfile.keep().unwrap();
-        let name = path.to_str().unwrap();
+    fn new() -> Result<Self, String> {
+        let mut tmpfile = NamedTempFile::new()
+            .map_err(|err| format!("Cannot create temporary file for PCAN library: {err}"))?;
+        tmpfile
+            .write_all(PCAN_LIB)
+            .map_err(|err| format!("Cannot extract PCAN library: {err}"))?;
+        let (_, path) = tmpfile
+            .keep()
+            .map_err(|err| format!("Cannot extract PCAN library: {err}"))?;
+        let name = path
+            .to_str()
+            .ok_or_else(|| format!("Invalid PCAN library path: {}", path.display()))?;
         let api =
-            unsafe { Api::load(name) }.expect("Could not load PCan: Is the driver installed?");
-        PCan { api }
+            unsafe { Api::load(name) }.map_err(|err| format!("Cannot load PCAN library: {err}"))?;
+        Ok(PCan { api })
+    }
+
+    /// Loads the PCAN library, if not done yet. Must be called before any other function.
+    pub fn load() -> crate::Result<()> {
+        match &*PCAN {
+            Ok(_) => Ok(()),
+            Err(err) => Err(crate::Error::PCanLibraryLoad(err.clone())),
+        }
     }
 
     pub fn describe_status(status: u32) -> String {
         let mut data: MaybeUninit<[c_char; 512]> = MaybeUninit::uninit();
         unsafe {
-            PCAN.api
+            pcan()
+                .api
                 .CAN_GetErrorText(status, 0x00, data.as_mut_ptr() as *mut c_char);
             let ret = CStr::from_ptr(data.as_ptr() as *const c_char);
             ret.to_str().unwrap().to_string()
@@ -255,7 +280,7 @@ impl PCan {
     }
 
     pub fn uninitialize(channel: Handle) -> Result<(), Error> {
-        let status = unsafe { PCAN.api.CAN_Uninitialize(channel) };
+        let status = unsafe { pcan().api.CAN_Uninitialize(channel) };
         Error::result(status)
     }
 
@@ -273,7 +298,8 @@ impl PCan {
         let status = {
             let ptr = &mut current_speed as *mut u32 as *mut c_void;
             unsafe {
-                PCAN.api
+                pcan()
+                    .api
                     .CAN_GetValue(channel, sys::PCAN_BUSSPEED_NOMINAL as u8, ptr, 4)
             }
         };
@@ -282,7 +308,7 @@ impl PCan {
         if status == 0 {
             // implies channel initialized
             if current_speed != bitrate {
-                let status = unsafe { PCAN.api.CAN_Uninitialize(channel) };
+                let status = unsafe { pcan().api.CAN_Uninitialize(channel) };
                 Error::result(status)?;
             }
         }
@@ -294,7 +320,8 @@ impl PCan {
             );
         }
         let status = unsafe {
-            PCAN.api
+            pcan()
+                .api
                 .CAN_Initialize(channel, baud, hw_type, port, interrupt)
         };
         if status == sys::PCAN_ERROR_INITIALIZE {
@@ -305,7 +332,7 @@ impl PCan {
         Error::result(status)?;
         let status = unsafe {
             let on = sys::PCAN_PARAMETER_ON as i32;
-            PCAN.api.CAN_SetValue(
+            pcan().api.CAN_SetValue(
                 channel,
                 sys::PCAN_BUSOFF_AUTORESET as u8,
                 &on as *const i32 as *const c_void,
@@ -321,7 +348,7 @@ impl PCan {
             // The driver expects a pointer to the event handle.
             let event_ptr =
                 &event as *const windows_sys::Win32::Foundation::HANDLE as *const c_void;
-            let status = PCAN.api.CAN_SetValue(
+            let status = pcan().api.CAN_SetValue(
                 channel,
                 sys::PCAN_RECEIVE_EVENT as u8,
                 event_ptr,
@@ -334,12 +361,12 @@ impl PCan {
     }
 
     pub fn reset(channel: Handle) -> Result<(), Error> {
-        let status = unsafe { PCAN.api.CAN_Reset(channel) };
+        let status = unsafe { pcan().api.CAN_Reset(channel) };
         Error::result(status)
     }
 
     pub fn get_status(channel: Handle) -> Option<Error> {
-        let status = unsafe { PCAN.api.CAN_GetStatus(channel) };
+        let status = unsafe { pcan().api.CAN_GetStatus(channel) };
         Error::new(status)
     }
 
@@ -357,7 +384,7 @@ impl PCan {
             millis_overflow: 0,
             micros: 0,
         };
-        let status = unsafe { PCAN.api.CAN_Read(channel, &mut msg, &mut timestamp) };
+        let status = unsafe { pcan().api.CAN_Read(channel, &mut msg, &mut timestamp) };
         let err = Error::new(status);
         // Only forward standard, extended and RTR frames, no status or error frames.
         let frame_bits = (sys::PCAN_MESSAGE_EXTENDED | sys::PCAN_MESSAGE_RTR) as u8;
@@ -369,7 +396,7 @@ impl PCan {
     }
 
     pub fn write(channel: Handle, msg: PCanMessage) -> Result<(), Error> {
-        let status = unsafe { PCAN.api.CAN_Write(channel, &msg as *const PCanMessage) };
+        let status = unsafe { pcan().api.CAN_Write(channel, &msg as *const PCanMessage) };
         Error::result(status)
     }
 
@@ -377,7 +404,7 @@ impl PCan {
         let channel_info = MaybeUninit::<sys::TPCANChannelInformation>::uninit();
         let infos = unsafe {
             let mut channel_count = 0_u32;
-            let status = PCAN.api.CAN_GetValue(
+            let status = pcan().api.CAN_GetValue(
                 sys::PCAN_NONEBUS as u16,
                 sys::PCAN_ATTACHED_CHANNELS_COUNT as u8,
                 &mut channel_count as *mut u32 as *mut c_void,
@@ -389,7 +416,7 @@ impl PCan {
             let ptr = infos.as_mut_ptr() as *mut c_void;
             let len = (channel_count as usize * std::mem::size_of::<sys::TPCANChannelInformation>())
                 as u32;
-            let status = PCAN.api.CAN_GetValue(
+            let status = pcan().api.CAN_GetValue(
                 sys::PCAN_NONEBUS as u16,
                 sys::PCAN_ATTACHED_CHANNELS as u8,
                 ptr,
@@ -414,7 +441,7 @@ impl PCan {
 
         let mut fd: c_int = 0;
         let status = unsafe {
-            PCAN.api.CAN_GetValue(
+            pcan().api.CAN_GetValue(
                 handle,
                 sys::PCAN_RECEIVE_EVENT as u8,
                 &mut fd as *mut c_int as *mut c_void,
