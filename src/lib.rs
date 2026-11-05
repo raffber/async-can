@@ -1,6 +1,6 @@
-//! This library provides a tokio based aynchronous IO stack for CAN communication.
+//! This library provides a tokio based asynchronous IO stack for CAN communication.
 //!
-//! ## Listing to a CAN Bus
+//! ## Listening to a CAN Bus
 //!
 //! ```no_run
 //! # tokio_test::block_on(async {
@@ -38,7 +38,7 @@
 //!
 //! Note that all senders implement the [`crate::Sender`] trait.
 //!
-//! ## USR CANNET devices
+//! ## USR-CANET devices
 //!
 //! USR CANET devices use a simple protocol on top of TCP to connect to a CAN bus.
 //!
@@ -67,7 +67,7 @@
 //! async-can = {version = "*", features = ["serde"]}
 //! ```
 //!
-//! This allows serializing the [`Message`] and related type.
+//! This allows serializing the [`Message`] and related types.
 //!
 //!
 #![allow(dead_code)]
