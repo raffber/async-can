@@ -31,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - The PCAN receive thread on Linux no longer exits when `poll()` is interrupted by a signal.
 - Building with the `pcan` feature on 32-bit Linux.
 - PCAN error descriptions in non-UTF-8 system languages no longer cause a panic.
+- On Windows, `pcan::Receiver::connect()` returns an error instead of panicking if the receive event cannot be created or registered, and a failed wait ends the receiver with an error instead of a panic.
 
 ## [0.3.0] - 2023-01-11
 
