@@ -5,7 +5,7 @@ use libc::c_void;
 use super::api::PCan;
 use crate::pcan::api::Handle;
 use std::{
-    os::unix::prelude::RawFd,
+    os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -14,13 +14,15 @@ use std::{
 
 pub(crate) struct Waiter {
     handle: Handle,
+    /// Owned by the PCAN driver.
     fd: RawFd,
-    eventfd: RawFd,
+    /// Shared with the [`WaiterHandle`], so it stays open until both are dropped.
+    eventfd: Arc<OwnedFd>,
     cancel: Arc<AtomicBool>,
 }
 
 pub(crate) struct WaiterHandle {
-    eventfd: RawFd,
+    eventfd: Arc<OwnedFd>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -35,15 +37,17 @@ impl Waiter {
     fn with_fd(handle: Handle, fd: RawFd) -> crate::Result<(Self, WaiterHandle)> {
         let eventfd = unsafe { libc::eventfd(0, 0) };
         if eventfd == -1 {
-            return Err(crate::Error::Io(std::io::Error::last_os_error()))?;
+            return Err(crate::Error::Io(std::io::Error::last_os_error()));
         }
+        // SAFETY: `eventfd` is a freshly created, valid fd that nothing else owns.
+        let eventfd = Arc::new(unsafe { OwnedFd::from_raw_fd(eventfd) });
 
         let cancel = Arc::new(AtomicBool::new(false));
 
         let waiter = Self {
             handle,
             fd,
-            eventfd,
+            eventfd: eventfd.clone(),
             cancel: cancel.clone(),
         };
 
@@ -59,7 +63,7 @@ impl Waiter {
                 revents: 0,
             },
             libc::pollfd {
-                fd: self.eventfd,
+                fd: self.eventfd.as_raw_fd(),
                 events: libc::POLLIN,
                 revents: 0,
             },
@@ -73,7 +77,7 @@ impl Waiter {
             let mut data = [0_u8; 8];
             unsafe {
                 libc::read(
-                    self.eventfd,
+                    self.eventfd.as_raw_fd(),
                     &mut data as *mut u8 as *mut c_void,
                     data.len(),
                 );
@@ -86,14 +90,6 @@ impl Waiter {
     }
 }
 
-impl Drop for Waiter {
-    fn drop(&mut self) {
-        unsafe {
-            libc::close(self.eventfd);
-        }
-    }
-}
-
 impl WaiterHandle {
     pub(crate) fn close(&mut self) {
         // Writing adds the value to the eventfd counter, which wakes poll() only if it's non-zero.
@@ -101,7 +97,7 @@ impl WaiterHandle {
         self.cancel.store(true, Ordering::SeqCst);
         unsafe {
             libc::write(
-                self.eventfd,
+                self.eventfd.as_raw_fd(),
                 &data as *const u8 as *const c_void,
                 data.len(),
             );
@@ -133,6 +129,25 @@ mod test {
             .recv_timeout(Duration::from_secs(1))
             .expect("close() did not wake the waiter");
         assert!(cancelled);
+        unsafe {
+            libc::close(pipe[0]);
+            libc::close(pipe[1]);
+        }
+    }
+
+    #[test]
+    fn eventfd_outlives_waiter() {
+        let mut pipe = [0; 2];
+        assert_eq!(unsafe { libc::pipe(pipe.as_mut_ptr()) }, 0);
+        let (waiter, mut handle) = Waiter::with_fd(0, pipe[0]).unwrap();
+        let eventfd = handle.eventfd.as_raw_fd();
+
+        // The receive thread may exit, dropping the waiter, before the handle is closed.
+        drop(waiter);
+        // The eventfd must still be open, so close() cannot write to a reused fd number.
+        assert_ne!(unsafe { libc::fcntl(eventfd, libc::F_GETFD) }, -1);
+        handle.close();
+
         unsafe {
             libc::close(pipe[0]);
             libc::close(pipe[1]);
