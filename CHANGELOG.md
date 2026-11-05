@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - On Windows, the PCAN receive event is unregistered from the driver when a `pcan::Receiver` stops, so the driver no longer signals a closed handle.
 - PCAN receive timestamps no longer wrap around after about 49.7 days.
 - The bundled PCAN library is no longer left behind in the temp directory on every start. On Linux, it is deleted after loading. On Windows, one copy per library version is extracted and reused.
+- PCAN receive overruns are logged as a warning, and the receiver keeps reading the queue instead of waiting for the next frame. A receive queue overrun no longer produces a `PCanReadFailed` error.
 
 ## [0.3.0] - 2023-01-11
 

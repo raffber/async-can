@@ -227,11 +227,12 @@ impl Error {
                 | sys::PCAN_ERROR_XMTFULL
                 | sys::PCAN_ERROR_XMTFULL
                 | sys::PCAN_ERROR_OVERRUN
+                | sys::PCAN_ERROR_QOVERRUN
                 | sys::PCAN_ERROR_QRCVEMPTY)
     }
 
     pub fn rx_overflow(&self) -> bool {
-        self.code & sys::PCAN_ERROR_OVERRUN > 0
+        self.code & (sys::PCAN_ERROR_OVERRUN | sys::PCAN_ERROR_QOVERRUN) > 0
     }
 
     pub fn tx_overflow(&self) -> bool {
