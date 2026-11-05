@@ -1,6 +1,6 @@
 //! Implements an async interface to the PCAN-API
 //!
-//! This modules ships directly with the necessary DLL embedded and
+//! This module ships directly with the necessary DLL embedded and
 //! automatically extracts and loads it the first time you use it.
 //! However, the [PCAN driver](https://www.peak-system.com/Drivers.523.0.html) still needs to be installed.
 //!
@@ -73,14 +73,14 @@ fn parse_ifname(ifname: &str) -> Result<Handle> {
 fn connect_handle(ifname: &str, bitrate: u32) -> Result<Handle> {
     let _ = get_baud(bitrate)?;
     let handle = parse_ifname(ifname)?;
-    if let Err(err) = PCan::initalize(handle, bitrate, sys::PCAN_TYPE_ISA as u8, IOPORT, INTERRUPT)
+    if let Err(err) = PCan::initialize(handle, bitrate, sys::PCAN_TYPE_ISA as u8, IOPORT, INTERRUPT)
     {
         return Err(Error::PCanInitFailed(err.code, err.description()));
     }
     Ok(handle)
 }
 
-/// Attempt de-initialize an interface, thus disconnecting from the CAN bus
+/// Attempt to de-initialize an interface, thus disconnecting from the CAN bus
 pub async fn deinitialize(ifname: &str) -> Result<()> {
     let handle = parse_ifname(ifname)?;
     task::spawn_blocking(move || match PCan::uninitialize(handle) {
@@ -104,7 +104,7 @@ pub struct Sender {
 
 impl Sender {
     /// Connect the given interface and initializes the adapter to the given bitrate (if required).
-    /// For nameing interafaces, refer to the [module documentation](crate::pcan).
+    /// For naming interfaces, refer to the [module documentation](crate::pcan).
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let handle = connect_handle(ifname, bitrate)?;
         Ok(Self { handle })
@@ -144,7 +144,7 @@ impl crate::Sender for Sender {
     }
 }
 
-/// Allows receiving message from the CAN bus.
+/// Allows receiving messages from the CAN bus.
 pub struct Receiver {
     handle: Handle,
     rx: mpsc::UnboundedReceiver<Result<(Message, Timestamp)>>,
@@ -153,7 +153,7 @@ pub struct Receiver {
 
 impl Receiver {
     /// Connect the given interface and initializes the adapter to the given bitrate (if required).
-    /// For nameing interafaces, refer to the [module documentation](crate::pcan).
+    /// For naming interfaces, refer to the [module documentation](crate::pcan).
     pub fn connect(ifname: &str, bitrate: u32) -> Result<Self> {
         let handle = connect_handle(ifname, bitrate)?;
         Self::start_receive(handle)
@@ -277,7 +277,7 @@ impl DeviceInfo {
     }
 }
 
-/// Retrieve all PCAN devices connected the host
+/// Retrieve all PCAN devices connected to the host
 pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
     spawn_blocking(PCan::list_devices)
         .await

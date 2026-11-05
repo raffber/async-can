@@ -1,4 +1,4 @@
-//! This module implements "dummy" loopback deviec. This is mostly intended for testing.
+//! This module implements "dummy" loopback device. This is mostly intended for testing.
 
 use async_trait::async_trait;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};

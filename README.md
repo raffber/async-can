@@ -17,7 +17,7 @@ This library is far from feature-complete. The following provides a list of feat
 
 * [x] Basic CAN message exchange on all supported interfaces
 * [x] Listing connected CAN devices / adapters
-* [ ] Allow chaning SocketCAN adapter settings (currently only supported to set interface up and down)
+* [ ] Allow changing SocketCAN adapter settings (currently only supported to set interface up and down)
 * [ ] Support for PCAN devices not connected over USB or PCI-E
 * [ ] Get real hardware timestamps for SocketCAN with `netlink` sockets
 * [ ] Support for CAN-FD

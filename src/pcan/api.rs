@@ -259,7 +259,7 @@ impl PCan {
         Error::result(status)
     }
 
-    pub fn initalize(
+    pub fn initialize(
         channel: Handle,
         bitrate: u32,
         hw_type: HwType,
