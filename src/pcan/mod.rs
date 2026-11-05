@@ -177,7 +177,7 @@ impl Receiver {
                     err.other_error(),
                     err.description(),
                 ))),
-                Some(err) if err.rx_empty() | err.rx_overflow() => match waiter.wait_for_event() {
+                Some(err) if err.rx_empty() => match waiter.wait_for_event() {
                     Ok(false) => continue,
                     Ok(true) => {
                         log::debug!("Waker cancelled!");
@@ -189,6 +189,11 @@ impl Receiver {
                         break;
                     }
                 },
+                Some(err) if err.rx_overflow() => {
+                    // Frames were lost, but there may be more in the queue, so keep reading.
+                    log::warn!("PCAN receive overrun, CAN frames were lost");
+                    None
+                }
                 Some(err) => Some(Err(Error::PCanReadFailed(err.code, err.description()))),
                 None => None,
             };
