@@ -88,7 +88,9 @@ jobs:
 
   socketcan:
     name: SocketCAN (vcan)
-    runs-on: ubuntu-latest
+    # Pinned: the ubuntu-latest (26.04) image runs a kernel whose
+    # linux-modules-extra package (which provides vcan) is not in the archive.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -96,9 +98,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Set up vcan0
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes "linux-modules-extra-$(uname -r)"
-          sudo modprobe vcan
+          if ! sudo modprobe vcan; then
+            sudo apt-get update
+            sudo apt-get install --yes "linux-modules-extra-$(uname -r)"
+            sudo modprobe vcan
+          fi
           sudo ip link add dev vcan0 type vcan
           sudo ip link set vcan0 up
       - name: Send and receive on vcan0
