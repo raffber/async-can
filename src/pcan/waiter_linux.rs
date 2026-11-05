@@ -68,7 +68,13 @@ impl Waiter {
                 revents: 0,
             },
         ];
-        let err = unsafe { libc::poll(&mut polls as *mut libc::pollfd, polls.len() as u64, -1) };
+        let err = unsafe {
+            libc::poll(
+                &mut polls as *mut libc::pollfd,
+                polls.len() as libc::nfds_t,
+                -1,
+            )
+        };
         if err < 0 {
             let err = std::io::Error::last_os_error();
             if err.kind() == std::io::ErrorKind::Interrupted {
