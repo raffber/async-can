@@ -64,6 +64,7 @@
     "pcibus",
     "pollfd",
     "pollin",
+    "projdir",
     "pusr",
     "qrcvempty",
     "raffber",
