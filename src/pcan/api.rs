@@ -479,9 +479,9 @@ impl PCan {
 
 impl From<Timestamp> for crate::Timestamp {
     fn from(val: Timestamp) -> Self {
-        let us = val.micros as u64;
-        let ms = val.millis as u64;
-        let micros = ms * 1000 + us;
+        // `millis` is a 32-bit counter that continues in `millis_overflow` when it wraps.
+        let ms = ((val.millis_overflow as u64) << 32) | val.millis as u64;
+        let micros = ms * 1000 + val.micros as u64;
         crate::Timestamp { micros }
     }
 }
@@ -513,5 +513,22 @@ mod test {
         assert!(!PCan::describe_status(sys::PCAN_ERROR_QRCVEMPTY).is_empty());
         // Unknown codes make CAN_GetErrorText fail.
         assert!(!PCan::describe_status(0xDEAD_BEEF).is_empty());
+    }
+
+    #[test]
+    fn timestamp_conversion() {
+        let ts = |millis, millis_overflow, micros| {
+            crate::Timestamp::from(Timestamp {
+                millis,
+                millis_overflow,
+                micros,
+            })
+            .micros
+        };
+        assert_eq!(ts(0, 0, 0), 0);
+        assert_eq!(ts(1234, 0, 567), 1_234_567);
+        // `millis` wraps after about 49.7 days and continues in `millis_overflow`.
+        assert_eq!(ts(0, 1, 0), (1 << 32) * 1000);
+        assert_eq!(ts(5, 2, 7), (2 << 32) * 1000 + 5_007);
     }
 }
