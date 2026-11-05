@@ -1,0 +1,25 @@
+{
+  "build": {
+    "context": "..",
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "yzhang.markdown-all-in-one",
+        "streetsidesoftware.code-spell-checker",
+        "mhutchie.git-graph",
+        "charliermarsh.ruff",
+        "meta.pyrefly",
+        "ms-python.python",
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  },
+  "name": "async-can",
+  "remoteUser": "vscode",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+}
