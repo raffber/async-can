@@ -83,7 +83,7 @@ pub mod usr_canet;
 pub mod loopback;
 
 #[cfg(feature = "serde")]
-use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as SerdeDeError};
 
 /// Maximum value for CAN ID if extended 29-bit ID is selected
 pub const CAN_EXT_ID_MASK: u32 = 0x1FFFFFFF;

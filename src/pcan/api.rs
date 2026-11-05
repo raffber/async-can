@@ -1,16 +1,16 @@
 #![allow(non_snake_case)]
 
 use std::{
-    ffi::c_void,
     ffi::CStr,
+    ffi::c_void,
     io::Write,
-    mem::{size_of, MaybeUninit},
+    mem::{MaybeUninit, size_of},
 };
 
 #[cfg(target_os = "linux")]
 use std::os::unix::prelude::RawFd;
 
-use super::{sys, DeviceInfo};
+use super::{DeviceInfo, sys};
 use crate::{CanFrameError, Message};
 use libloading::Library;
 use std::os::raw::c_char;
@@ -143,16 +143,21 @@ macro_rules! pcan_api {
             ///
             /// The library at `path` must export the declared symbols with matching signatures.
             unsafe fn load(path: &str) -> Result<Self, libloading::Error> {
-                let lib = Library::new(path)?;
+                // SAFETY: see function-level safety comment.
+                let lib = unsafe { Library::new(path)? };
                 $(
-                    let $name = *lib.get::<unsafe extern "C" fn($($ty),*) $(-> $ret)?>(stringify!($name))?;
+                    // SAFETY: the declared signature matches the PCAN-Basic API.
+                    let $name = unsafe {
+                        *lib.get::<unsafe extern "C" fn($($ty),*) $(-> $ret)?>(stringify!($name))?
+                    };
                 )*
                 Ok(Self { _lib: lib, $($name,)* })
             }
 
             $(
                 unsafe fn $name(&self, $($arg: $ty),*) $(-> $ret)? {
-                    (self.$name)($($arg),*)
+                    // SAFETY: forwarded to the caller of this method.
+                    unsafe { (self.$name)($($arg),*) }
                 }
             )*
         }

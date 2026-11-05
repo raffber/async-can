@@ -7,8 +7,8 @@ use crate::pcan::api::Handle;
 use std::{
     os::unix::prelude::RawFd,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 

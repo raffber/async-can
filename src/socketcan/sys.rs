@@ -2,7 +2,7 @@
 
 use std::mem;
 
-use libc::{can_frame, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_RTR_FLAG, CAN_SFF_MASK};
+use libc::{CAN_EFF_FLAG, CAN_EFF_MASK, CAN_RTR_FLAG, CAN_SFF_MASK, can_frame};
 
 use crate::Message;
 

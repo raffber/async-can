@@ -2,9 +2,25 @@
 name = "async-can"
 version = "0.3.0"
 authors = ["Raphael Bernhard <beraphae@gmail.com>"]
-edition = "2018"
+edition = "2024"
+rust-version = "1.88"
+description = "Asynchronous CAN bus stack on tokio supporting SocketCAN, PCAN and USR-CANET200"
+repository = "https://github.com/raffber/async-can"
+readme = "README.md"
 license = "MIT OR Apache-2.0"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+keywords = ["can", "canbus", "socketcan", "pcan", "tokio"]
+categories = ["asynchronous", "embedded", "hardware-support", "network-programming"]
+include = [
+    "/src",
+    "/lib",
+    "/CHANGELOG.md",
+    "/README.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 async-trait = "0.1.89"
@@ -14,7 +30,7 @@ log = "0.4.22"
 serde = { version = "1", features = ["derive"], optional = true }
 tempfile = { version = "3.20", optional = true }
 thiserror = "2"
-tokio = { version = "1.40", features = ["sync", "time", "rt", "net", "macros", "io-util"] }
+tokio = { version = "1.40", features = ["sync", "rt", "net", "io-util"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.170"
@@ -25,6 +41,7 @@ rtnetlink = { version = "0.24", optional = true }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security"] }
 
 [dev-dependencies]
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
 tokio-test = "0.4.4"
 
 [features]
