@@ -47,7 +47,7 @@ jobs:
       - name: Install Rust
         run: |
           rustup toolchain install
-          rustup target add x86_64-pc-windows-gnu
+          rustup target add x86_64-pc-windows-gnu i686-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -55,6 +55,8 @@ jobs:
         run: cargo clippy --all-features --all-targets
       - name: Clippy (Windows)
         run: cargo clippy --all-features --all-targets --target x86_64-pc-windows-gnu
+      - name: Clippy (32-bit Linux)
+        run: cargo clippy --all-features --all-targets --target i686-unknown-linux-gnu
       - name: Docs
         run: cargo doc --all-features --no-deps
 
