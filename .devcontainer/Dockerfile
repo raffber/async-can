@@ -10,7 +10,9 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive && \
 # uv (Python package manager)
 COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /bin/
 
-# Rust: the toolchain version is pinned in rust-toolchain.toml
+# Rust: the toolchain version is pinned in rust-toolchain.toml.
+# The windows-gnu target allows type-checking the Windows code with
+# `cargo check --target x86_64-pc-windows-gnu`.
 USER vscode
 ENV RUSTUP_HOME=/home/vscode/.rustup \
     CARGO_HOME=/home/vscode/.cargo \
@@ -20,4 +22,5 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
         sh -s -- -y --no-modify-path --profile minimal --default-toolchain none && \
     cd /tmp && rustup toolchain install && \
     rustup default "$(rustup show active-toolchain | cut -d' ' -f1)" && \
+    rustup target add x86_64-pc-windows-gnu && \
     rm /tmp/rust-toolchain.toml

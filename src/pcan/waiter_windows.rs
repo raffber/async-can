@@ -52,7 +52,7 @@ impl Waiter {
                 panic!("Waiting for event has failed!");
             }
         }
-        return Ok(self.cancel.load(Ordering::SeqCst));
+        Ok(self.cancel.load(Ordering::SeqCst))
     }
 }
 

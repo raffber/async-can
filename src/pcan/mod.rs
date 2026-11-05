@@ -190,19 +190,18 @@ impl Receiver {
                 Some(err) => Some(Err(Error::PCanReadFailed(err.code, err.description()))),
                 None => None,
             };
-            if let Some(x) = to_send {
-                if tx.send(x).is_err() {
-                    log::debug!("Channel closed, quitting.");
-                    break;
-                }
+            if let Some(x) = to_send
+                && tx.send(x).is_err()
+            {
+                log::debug!("Channel closed, quitting.");
+                break;
             }
-            if let Some((msg, timestamp)) = data {
-                if let Ok(msg) = msg.into_message() {
-                    if tx.send(Ok((msg, timestamp.into()))).is_err() {
-                        log::debug!("Channel closed, quitting.");
-                        break;
-                    }
-                }
+            if let Some((msg, timestamp)) = data
+                && let Ok(msg) = msg.into_message()
+                && tx.send(Ok((msg, timestamp.into()))).is_err()
+            {
+                log::debug!("Channel closed, quitting.");
+                break;
             }
         }
         log::debug!("Leaving receiver.");

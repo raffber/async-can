@@ -25,7 +25,7 @@ impl crate::Sender for Sender {
     async fn send(&mut self, msg: Message) -> crate::Result<()> {
         self.tx
             .send(msg)
-            .map_err(|_| crate::Error::Other(format!("Disconnected")))
+            .map_err(|_| crate::Error::Other("Disconnected".to_string()))
     }
 }
 
@@ -35,6 +35,6 @@ impl crate::Receiver for Receiver {
         self.rx
             .recv()
             .await
-            .ok_or_else(|| crate::Error::Other(format!("Disconnected")))
+            .ok_or_else(|| crate::Error::Other("Disconnected".to_string()))
     }
 }

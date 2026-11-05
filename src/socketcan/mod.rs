@@ -95,8 +95,7 @@ impl CanSocket {
     /// Try to send a [`crate::Message`] to the CAN bus
     pub async fn send(&self, msg: Message) -> io::Result<()> {
         let frame = can_frame::from(msg);
-        let ret = poll_fn(|cx| self.poll_write(cx, &frame)).await;
-        Ok(ret?)
+        poll_fn(|cx| self.poll_write(cx, &frame)).await
     }
 
     fn poll_write(&self, cx: &mut Context<'_>, frame: &can_frame) -> Poll<io::Result<()>> {
