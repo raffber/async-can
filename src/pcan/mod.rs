@@ -14,7 +14,7 @@
 //! device names to identify the PCAN devices. Currently the following devices are supported:
 //!
 //!  * "usb1" to "usb8"
-//!  * "pci0" to "pci8"
+//!  * "pci1" to "pci8"
 //!
 //! If you know that only a single USB dongle will be connected to the host, it's safe to just hard-code the "usb1" string.
 //!
@@ -56,7 +56,7 @@ fn parse_ifname(ifname: &str) -> Result<Handle> {
         if num == 0 || num > 8 {
             return Err(Error::InvalidInterfaceAddress);
         }
-        Ok(num + 0x50)
+        Ok(sys::PCAN_USBBUS1 as Handle + num - 1)
     } else if let Some(pci_num) = ifname.strip_prefix("pci") {
         let num: u16 = pci_num
             .parse()
@@ -64,7 +64,7 @@ fn parse_ifname(ifname: &str) -> Result<Handle> {
         if num == 0 || num > 8 {
             return Err(Error::InvalidInterfaceAddress);
         }
-        Ok(num + 64)
+        Ok(sys::PCAN_PCIBUS1 as Handle + num - 1)
     } else {
         Err(Error::InvalidInterfaceAddress)
     }
@@ -285,4 +285,22 @@ pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
         .await
         .unwrap()
         .map_err(|x| crate::Error::PCanOtherError(x.code, x.description()))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn interface_names() {
+        for name in ["usb1", "usb8", "pci1", "pci8"] {
+            let handle = parse_ifname(name).unwrap();
+            assert_eq!(DeviceInfo { handle }.interface_name().unwrap(), name);
+        }
+        assert_eq!(parse_ifname("USB1").unwrap(), sys::PCAN_USBBUS1 as Handle);
+        assert_eq!(parse_ifname("pci1").unwrap(), sys::PCAN_PCIBUS1 as Handle);
+        for name in ["usb0", "usb9", "pci0", "pci9", "usb", "lan1", ""] {
+            assert!(parse_ifname(name).is_err(), "{name}");
+        }
+    }
 }
