@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Dropping a `pcan::Receiver` on Linux now stops its receive thread even if no further frames arrive.
 - The PCAN receive thread on Linux no longer exits when `poll()` is interrupted by a signal.
 - Building with the `pcan` feature on 32-bit Linux.
+- PCAN error descriptions in non-UTF-8 system languages no longer cause a panic.
 
 ## [0.3.0] - 2023-01-11
 
