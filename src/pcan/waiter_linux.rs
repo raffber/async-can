@@ -70,7 +70,12 @@ impl Waiter {
         ];
         let err = unsafe { libc::poll(&mut polls as *mut libc::pollfd, polls.len() as u64, -1) };
         if err < 0 {
-            return Err(crate::Error::Io(std::io::Error::last_os_error()))?;
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                // Interrupted by a signal: let the caller check for messages and wait again.
+                return Ok(self.cancel.load(Ordering::SeqCst));
+            }
+            return Err(crate::Error::Io(err));
         }
         if polls[1].revents != 0 {
             // eventfd was flagged
