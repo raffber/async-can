@@ -4,19 +4,17 @@ use std::ffi::{c_void, CString};
 use std::io::{self, ErrorKind};
 use std::mem::{size_of, MaybeUninit};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::os::raw::{c_int, c_short};
 use std::task::{Context, Poll};
 
 use std::future::poll_fn;
 use std::task::ready;
 
 use futures::TryStreamExt;
-use libc::sockaddr;
+use libc::{can_frame, sockaddr, sockaddr_can};
 use rtnetlink::packet_route::link::{InfoKind, LinkAttribute, LinkInfo, State};
 use rtnetlink::LinkUnspec;
 use tokio::io::unix::AsyncFd;
 
-use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::Message;
 use crate::{DeviceInfo, Result};
 
@@ -43,7 +41,7 @@ impl CanSocket {
         if ifindex == 0 {
             return Err(io::Error::last_os_error());
         }
-        let fd = unsafe { libc::socket(libc::PF_CAN, libc::SOCK_RAW, sys::CAN_RAW as c_int) };
+        let fd = unsafe { libc::socket(libc::PF_CAN, libc::SOCK_RAW, libc::CAN_RAW) };
         if fd == -1 {
             return Err(io::Error::last_os_error());
         }
@@ -51,17 +49,15 @@ impl CanSocket {
         // Wrapping it right away ensures it is closed on every error path below.
         let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
-        let addr = CanSocketAddr {
-            _af_can: AF_CAN as c_short,
-            if_index: ifindex as c_int,
-            rx_id: 0,
-            tx_id: 0,
-        };
+        // SAFETY: `sockaddr_can` is plain old data, for which all-zeroes is valid.
+        let mut addr: sockaddr_can = unsafe { std::mem::zeroed() };
+        addr.can_family = libc::AF_CAN as libc::sa_family_t;
+        addr.can_ifindex = ifindex as libc::c_int;
         let ok = unsafe {
             libc::bind(
                 fd.as_raw_fd(),
-                &addr as *const CanSocketAddr as *const sockaddr,
-                size_of::<CanSocketAddr>() as u32,
+                &addr as *const sockaddr_can as *const sockaddr,
+                size_of::<sockaddr_can>() as libc::socklen_t,
             )
         };
         if ok != 0 {
@@ -70,7 +66,8 @@ impl CanSocket {
 
         // set non-blocking mode for asyncio
         let nonblocking = true;
-        let ok = unsafe { libc::ioctl(fd.as_raw_fd(), libc::FIONBIO, &(nonblocking as c_int)) };
+        let ok =
+            unsafe { libc::ioctl(fd.as_raw_fd(), libc::FIONBIO, &(nonblocking as libc::c_int)) };
         if ok != 0 {
             return Err(io::Error::last_os_error());
         }
@@ -97,12 +94,12 @@ impl CanSocket {
 
     /// Try to send a [`crate::Message`] to the CAN bus
     pub async fn send(&self, msg: Message) -> io::Result<()> {
-        let frame: CanFrame = CanFrame::from(msg);
+        let frame = can_frame::from(msg);
         let ret = poll_fn(|cx| self.poll_write(cx, &frame)).await;
         Ok(ret?)
     }
 
-    fn poll_write(&self, cx: &mut Context<'_>, frame: &CanFrame) -> Poll<io::Result<()>> {
+    fn poll_write(&self, cx: &mut Context<'_>, frame: &can_frame) -> Poll<io::Result<()>> {
         loop {
             let mut guard = ready!(self.inner.poll_write_ready(cx))?;
             match guard.try_io(|fd| write_to_fd(fd.as_raw_fd(), frame)) {
@@ -121,10 +118,10 @@ impl CanSocket {
     }
 }
 
-fn write_to_fd(fd: RawFd, frame: &CanFrame) -> io::Result<()> {
-    let frame = frame as *const CanFrame as *const c_void;
-    let written = unsafe { libc::write(fd, frame, size_of::<CanFrame>()) };
-    if written as usize != size_of::<CanFrame>() {
+fn write_to_fd(fd: RawFd, frame: &can_frame) -> io::Result<()> {
+    let frame = frame as *const can_frame as *const c_void;
+    let written = unsafe { libc::write(fd, frame, size_of::<can_frame>()) };
+    if written as usize != size_of::<can_frame>() {
         Err(io::Error::last_os_error())
     } else {
         // successfully sent
@@ -133,15 +130,20 @@ fn write_to_fd(fd: RawFd, frame: &CanFrame) -> io::Result<()> {
 }
 
 fn read_from_fd(fd: RawFd) -> io::Result<Message> {
-    let mut frame = MaybeUninit::<CanFrame>::uninit();
-    let (frame, size) = unsafe {
-        let size = libc::read(fd, frame.as_mut_ptr() as *mut c_void, size_of::<CanFrame>());
-        (frame.assume_init(), size as usize)
+    let mut frame = MaybeUninit::<can_frame>::uninit();
+    let size = unsafe {
+        libc::read(
+            fd,
+            frame.as_mut_ptr() as *mut c_void,
+            size_of::<can_frame>(),
+        )
     };
-    if size != size_of::<CanFrame>() {
+    if size < 0 || size as usize != size_of::<can_frame>() {
         return Err(io::Error::last_os_error());
     }
-    Ok(frame.into())
+    // SAFETY: the kernel wrote a complete `can_frame`.
+    let frame = unsafe { frame.assume_init() };
+    Ok(sys::frame_to_message(&frame))
 }
 
 #[async_trait]
