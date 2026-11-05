@@ -171,7 +171,7 @@ pcan_api! {
     CAN_GetStatus: fn(channel: Handle) -> Status;
     CAN_Read: fn(channel: Handle, msg: *mut PCanMessage, timestamp: *mut Timestamp) -> Status;
     CAN_Write: fn(channel: Handle, msg: *const PCanMessage) -> Status;
-    CAN_GetErrorText: fn(error: Status, lang: u16, buf: *const c_char);
+    CAN_GetErrorText: fn(error: Status, lang: u16, buf: *mut c_char) -> Status;
     CAN_SetValue: fn(channel: Handle, param: u8, buf: *const c_void, len: u32) -> Status;
     CAN_GetValue: fn(channel: Handle, param: u8, buf: *mut c_void, len: u32) -> Status;
 }
@@ -269,13 +269,17 @@ impl PCan {
     }
 
     pub fn describe_status(status: u32) -> String {
-        let mut data: MaybeUninit<[c_char; 512]> = MaybeUninit::uninit();
-        unsafe {
+        // The PCAN-Basic documentation requires a buffer of at least 256 bytes.
+        let mut buf = [0_u8; 512];
+        // Language 0 selects the system language, so the text may not be UTF-8.
+        let result = unsafe {
             pcan()
                 .api
-                .CAN_GetErrorText(status, 0x00, data.as_mut_ptr() as *mut c_char);
-            let ret = CStr::from_ptr(data.as_ptr() as *const c_char);
-            ret.to_str().unwrap().to_string()
+                .CAN_GetErrorText(status, 0x00, buf.as_mut_ptr() as *mut c_char)
+        };
+        match CStr::from_bytes_until_nul(&buf) {
+            Ok(text) if !text.is_empty() => text.to_string_lossy().into_owned(),
+            _ => format!("Unknown PCAN status 0x{status:X} (error text unavailable: 0x{result:X})"),
         }
     }
 
@@ -474,5 +478,21 @@ pub fn parse_bus_error(err: u32) -> crate::BusError {
         crate::BusError::LightWarning
     } else {
         panic!("No bus-error flag: {:x}", err);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn describe_status() {
+        if PCan::load().is_err() {
+            // The bundled library is only available on x86-64.
+            return;
+        }
+        assert!(!PCan::describe_status(sys::PCAN_ERROR_QRCVEMPTY).is_empty());
+        // Unknown codes make CAN_GetErrorText fail.
+        assert!(!PCan::describe_status(0xDEAD_BEEF).is_empty());
     }
 }
