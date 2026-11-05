@@ -1,133 +1,76 @@
-//! This module implements the low-level SocketCAN bindings, in this case
-//! just the C-ABI structures that are "serialized" onto the socket
+//! Conversions between [`Message`] and the kernel's `struct can_frame`, as defined by `libc`.
 
-use std::os::raw::{c_int, c_short};
+use std::mem;
 
-use crate::Message::Remote;
-use crate::{CanFrameError, Message, CAN_EXT_ID_MASK, CAN_STD_ID_MASK};
+use libc::{can_frame, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_RTR_FLAG, CAN_SFF_MASK};
 
-const CAN_EFF_FLAG: u32 = 0x80000000;
-const CAN_RTR_FLAG: u32 = 0x40000000;
-const CAN_ERR_FLAG: u32 = 0x20000000;
+use crate::Message;
 
-const CAN_SFF_ID_BITS: u32 = 11;
-const CAN_EFF_ID_BITS: u32 = 29;
-
-const CAN_MAX_DLC: usize = 8;
-const CAN_MAX_DLEN: usize = 8;
-
-pub const CAN_RAW: usize = 1;
-
-pub const AF_CAN: c_int = 29;
-
-#[repr(C)]
-pub(crate) struct CanFrame {
-    id: u32,
-    dlc: u8,
-    pad: u8,
-    res0: u8,
-    res1: u8,
-    data: [u8; CAN_MAX_DLEN],
+/// Builds a zero-initialized `can_frame`.
+fn empty_frame() -> can_frame {
+    // SAFETY: `can_frame` only contains integers and byte arrays, for which all-zeroes is valid.
+    unsafe { mem::zeroed() }
 }
 
-impl CanFrame {
-    pub(crate) fn new_data(id: u32, ext_id: bool, data: &[u8]) -> Result<Self, CanFrameError> {
-        CanFrameError::validate_id(id, ext_id)?;
-
-        if data.len() > CAN_MAX_DLEN {
-            return Err(CanFrameError::DataTooLong);
-        }
-        let mut id = id;
-        if ext_id {
-            id |= CAN_EFF_FLAG;
-        }
-
-        let mut can_data = [0_u8; CAN_MAX_DLEN];
-        can_data[0..data.len()].copy_from_slice(data);
-
-        Ok(Self {
-            id,
-            dlc: data.len() as u8,
-            pad: 0,
-            res0: 0,
-            res1: 0,
-            data: can_data,
-        })
-    }
-
-    pub(crate) fn new_rtr(id: u32, ext_id: bool, dlc: u8) -> Result<Self, CanFrameError> {
-        CanFrameError::validate_id(id, ext_id)?;
-        let mut id = id;
-        if ext_id {
-            id |= CAN_EFF_FLAG;
-        }
-        id |= CAN_RTR_FLAG;
-        Ok(Self {
-            id,
-            dlc,
-            pad: 0,
-            res0: 0,
-            res1: 0,
-            data: [0_u8; CAN_MAX_DLEN],
-        })
-    }
-}
-
-impl From<Message> for CanFrame {
+impl From<Message> for can_frame {
     fn from(msg: Message) -> Self {
-        let mut id = msg.id();
+        let mut frame = empty_frame();
+        frame.can_id = msg.id();
         if msg.ext_id() {
-            id |= CAN_EFF_FLAG;
+            frame.can_id |= CAN_EFF_FLAG;
         }
         match msg {
             Message::Data(msg) => {
-                let mut can_data = [0_u8; CAN_MAX_DLEN];
-                can_data[0..msg.data().len()].copy_from_slice(msg.data());
-                CanFrame {
-                    id,
-                    dlc: msg.data().len() as u8,
-                    pad: 0,
-                    res0: 0,
-                    res1: 0,
-                    data: can_data,
-                }
+                let data = msg.data();
+                frame.data[..data.len()].copy_from_slice(data);
+                frame.can_dlc = data.len() as u8;
             }
-            Remote(msg) => {
-                id |= CAN_RTR_FLAG;
-                CanFrame {
-                    id,
-                    dlc: msg.dlc(),
-                    pad: 0,
-                    res0: 0,
-                    res1: 0,
-                    data: [0_u8; CAN_MAX_DLEN],
-                }
+            Message::Remote(msg) => {
+                frame.can_id |= CAN_RTR_FLAG;
+                frame.can_dlc = msg.dlc();
             }
         }
+        frame
     }
 }
 
-#[repr(C)]
-pub(crate) struct CanSocketAddr {
-    pub(crate) _af_can: c_short,
-    pub(crate) if_index: c_int,
-    // address familiy,
-    pub(crate) rx_id: u32,
-    pub(crate) tx_id: u32,
+/// Converts a frame received from the kernel into a [`Message`].
+pub(crate) fn frame_to_message(frame: &can_frame) -> Message {
+    let (id, ext_id) = if frame.can_id & CAN_EFF_FLAG != 0 {
+        (frame.can_id & CAN_EFF_MASK, true)
+    } else {
+        (frame.can_id & CAN_SFF_MASK, false)
+    };
+    if frame.can_id & CAN_RTR_FLAG != 0 {
+        Message::new_remote(id, ext_id, frame.can_dlc).unwrap()
+    } else {
+        Message::new_data(id, ext_id, &frame.data[..frame.can_dlc as usize]).unwrap()
+    }
 }
 
-impl From<CanFrame> for Message {
-    fn from(val: CanFrame) -> Self {
-        let (id, ext_id) = if val.id & CAN_EFF_FLAG > 0 {
-            (val.id & CAN_EXT_ID_MASK, true)
-        } else {
-            (val.id & CAN_STD_ID_MASK, false)
-        };
-        let rtr = val.id & CAN_RTR_FLAG > 0;
-        if rtr {
-            Message::new_remote(id, ext_id, val.dlc).unwrap()
-        } else {
-            Message::new_data(id, ext_id, &val.data[0..(val.dlc as usize)]).unwrap()
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn round_trip() {
+        let msgs = [
+            Message::new_data(0x123, false, &[1, 2, 3]).unwrap(),
+            Message::new_data(0x1ABCDEF, true, &[1, 2, 3, 4, 5, 6, 7, 8]).unwrap(),
+            Message::new_data(0x7FF, false, &[]).unwrap(),
+            Message::new_remote(0x42, false, 4).unwrap(),
+            Message::new_remote(0x1FFFFFFF, true, 8).unwrap(),
+        ];
+        for msg in msgs {
+            let frame = can_frame::from(msg.clone());
+            assert_eq!(frame_to_message(&frame), msg);
         }
+    }
+
+    #[test]
+    fn frame_layout() {
+        let frame = can_frame::from(Message::new_remote(0x10, true, 2).unwrap());
+        assert_eq!(frame.can_id, 0x10 | CAN_EFF_FLAG | CAN_RTR_FLAG);
+        assert_eq!(frame.can_dlc, 2);
     }
 }
