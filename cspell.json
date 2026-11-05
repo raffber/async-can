@@ -74,6 +74,7 @@
     "pcibus",
     "pollfd",
     "pollin",
+    "projdir",
     "pusr",
     "qoverrun",
     "qrcvempty",

@@ -1,9 +1,7 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.2.0] - unreleased
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
@@ -15,11 +13,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - **Breaking:** Minimum supported Rust version is now 1.88, and the crate uses edition 2024.
 - **Breaking:** `socketcan::CanSocket` no longer implements `mio::event::Source`. This removes `mio` 0.7 from the public API.
+- **Breaking:** New `Error::PCanLibraryLoad` variant.
 - PCAN bindings are pre-generated and committed, so building no longer requires `bindgen` or libclang. Regenerate them with `scripts/gen-pcan-bindings.sh`.
 - SocketCAN uses the `libc` definitions of `can_frame` and `sockaddr_can` instead of hand-written structs.
 - Updated dependencies: `rtnetlink` 0.24, `windows-sys` 0.61, `thiserror` 2. The unmaintained `dlopen` crate is replaced with `libloading`, and `lazy_static` with `std::sync::LazyLock`.
 - Added crates.io metadata to `Cargo.toml`.
-- **Breaking:** New `Error::PCanLibraryLoad` variant.
 
 ### Fixed
 
