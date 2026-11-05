@@ -347,21 +347,22 @@ impl PCan {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn register_event(channel: Handle, event: windows_sys::Win32::Foundation::HANDLE) {
-        unsafe {
+    pub fn register_event(
+        channel: Handle,
+        event: windows_sys::Win32::Foundation::HANDLE,
+    ) -> Result<(), Error> {
+        let status = unsafe {
             // The driver expects a pointer to the event handle.
             let event_ptr =
                 &event as *const windows_sys::Win32::Foundation::HANDLE as *const c_void;
-            let status = pcan().api.CAN_SetValue(
+            pcan().api.CAN_SetValue(
                 channel,
                 sys::PCAN_RECEIVE_EVENT as u8,
                 event_ptr,
                 size_of::<*const c_void>() as u32,
-            );
-            if Error::result(status).is_err() {
-                panic!("Cannot register event in driver: {}", status)
-            }
-        }
+            )
+        };
+        Error::result(status)
     }
 
     pub fn reset(channel: Handle) -> Result<(), Error> {
