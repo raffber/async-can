@@ -67,6 +67,9 @@ impl crate::Receiver for Receiver {
         let ext_id = (buf[0] & 0x80) != 0;
         let id = BigEndian::read_u32(&buf[1..]);
         let dlc = buf[0] & 0xF;
+        if dlc as usize > crate::CAN_MAX_DLC {
+            return Err(crate::Error::DataTooLong);
+        }
         let ret = if (buf[0] & 0x40) != 0 {
             Message::new_remote(id, ext_id, dlc)?
         } else {
@@ -84,7 +87,22 @@ mod test {
         task,
     };
 
-    use crate::{Message, Receiver, Sender};
+    use crate::{Error, Message, Receiver, Sender};
+
+    /// A frame with a DLC above 8 must be rejected instead of panicking.
+    #[tokio::test]
+    async fn invalid_dlc() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        task::spawn(async move {
+            let (mut connection, _) = listener.accept().await.unwrap();
+            let mut frame = [0_u8; 13];
+            frame[0] = 0x0F; // standard data frame, DLC 15
+            connection.write_all(&frame).await.unwrap();
+        });
+        let (_tx, mut rx) = super::connect(addr).await.unwrap();
+        assert!(matches!(rx.recv().await, Err(Error::DataTooLong)));
+    }
 
     #[tokio::test]
     async fn round_trip() {
