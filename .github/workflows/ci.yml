@@ -2,49 +2,115 @@ name: CI
 
 on:
   push:
-    branches: [ '*' ]
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
 
+# All jobs use the toolchain pinned in rust-toolchain.toml, except `msrv`.
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --all-features --all-targets
+      - name: Test
+        if: runner.os == 'Linux'
+        run: cargo test --all-features
+      # The crate-level doc examples use the Linux-only `socketcan` module, so skip doctests on Windows.
+      - name: Test (without doctests)
+        if: runner.os == 'Windows'
+        run: cargo test --all-features --lib --tests
 
-    - name: Set up Clang
-      run: sudo apt-get update && sudo apt-get install --yes libclang1
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy (Linux)
+        run: cargo clippy --all-features --all-targets
+      - name: Clippy (Windows)
+        run: cargo clippy --all-features --all-targets --target x86_64-pc-windows-gnu
+      - name: Docs
+        run: cargo doc --all-features --no-deps
 
-    - name: Restore cargo cache
-      uses: actions/cache@v2
-      env:
-        cache-name: ci
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          ~/.cargo/bin
-          target
-        key: ubuntu-${{ env.cache-name }}-${{ hashFiles('Cargo.lock') }}
+  features:
+    name: Feature combinations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-hack
+      - name: Check each feature
+        run: cargo hack check --each-feature --no-dev-deps
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        default: true
-        profile: minimal
-        components: clippy, rustfmt
-    
-    - name: Build Debug
-      run: cargo build
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          MSRV=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          rustup toolchain install "$MSRV" --profile minimal
+          echo "MSRV=$MSRV" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+      - name: Check
+        run: cargo +"$MSRV" check --all-features
 
-    - name: Run tests
-      run: cargo test
+  socketcan:
+    name: SocketCAN (vcan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Set up vcan0
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes "linux-modules-extra-$(uname -r)"
+          sudo modprobe vcan
+          sudo ip link add dev vcan0 type vcan
+      # Setting interfaces up and down requires CAP_NET_ADMIN, so run the test binary with sudo.
+      - name: Run vcan tests
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo -E
+        run: cargo test --features socket_can --lib socketcan -- --ignored
 
-    - name: Run clippy
-      run: cargo clippy
-
-    - name: Check formatting
-      run: cargo fmt -- --check
+  spelling:
+    name: Spelling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Run cspell
+        run: npx --yes cspell@9 --no-progress --gitignore "**"
