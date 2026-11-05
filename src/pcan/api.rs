@@ -176,6 +176,19 @@ pcan_api! {
     CAN_GetValue: fn(channel: Handle, param: u8, buf: *mut c_void, len: u32) -> Status;
 }
 
+fn path_str(path: &std::path::Path) -> Result<&str, String> {
+    path.to_str()
+        .ok_or_else(|| format!("Invalid PCAN library path: {}", path.display()))
+}
+
+/// 64-bit FNV-1a hash, used to name the extracted library after its contents.
+#[cfg(target_os = "windows")]
+fn fnv1a(data: &[u8]) -> u64 {
+    data.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ byte as u64).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
 static PCAN: LazyLock<Result<PCan, String>> = LazyLock::new(PCan::new);
 
 /// Returns the loaded library.
@@ -244,20 +257,54 @@ pub struct PCan {
 
 impl PCan {
     fn new() -> Result<Self, String> {
-        let mut tmpfile = NamedTempFile::new()
-            .map_err(|err| format!("Cannot create temporary file for PCAN library: {err}"))?;
-        tmpfile
-            .write_all(PCAN_LIB)
-            .map_err(|err| format!("Cannot extract PCAN library: {err}"))?;
-        let (_, path) = tmpfile
-            .keep()
-            .map_err(|err| format!("Cannot extract PCAN library: {err}"))?;
-        let name = path
-            .to_str()
-            .ok_or_else(|| format!("Invalid PCAN library path: {}", path.display()))?;
-        let api =
-            unsafe { Api::load(name) }.map_err(|err| format!("Cannot load PCAN library: {err}"))?;
+        let api = Self::load_bundled_library()?;
         Ok(PCan { api })
+    }
+
+    /// Extracts the bundled library to a temporary file, loads it and removes the file again.
+    /// The loaded library stays mapped into memory.
+    #[cfg(target_os = "linux")]
+    fn load_bundled_library() -> Result<Api, String> {
+        let mut file = NamedTempFile::new()
+            .map_err(|err| format!("Cannot create temporary file for PCAN library: {err}"))?;
+        file.write_all(PCAN_LIB)
+            .map_err(|err| format!("Cannot extract PCAN library: {err}"))?;
+        let api = unsafe { Api::load(path_str(file.path())?) }
+            .map_err(|err| format!("Cannot load PCAN library: {err}"))?;
+        // Dropping `file` deletes it.
+        Ok(api)
+    }
+
+    /// Extracts the bundled library and loads it.
+    ///
+    /// A loaded DLL cannot be deleted on Windows, so it is extracted to a fixed path derived from
+    /// its contents in the temp directory, and reused by later runs. This keeps at most one copy
+    /// per library version.
+    #[cfg(target_os = "windows")]
+    fn load_bundled_library() -> Result<Api, String> {
+        use std::{fs, path::PathBuf};
+
+        let dir = std::env::temp_dir().join("async-can");
+        let path: PathBuf = dir.join(format!("PCANBasic-{:016x}.dll", fnv1a(PCAN_LIB)));
+        let is_extracted = || fs::read(&path).is_ok_and(|content| content == PCAN_LIB);
+        if !is_extracted() {
+            fs::create_dir_all(&dir)
+                .map_err(|err| format!("Cannot create {}: {err}", dir.display()))?;
+            // Write to a temporary file first and rename it, so that other processes never load a
+            // partially written library.
+            let mut file = NamedTempFile::new_in(&dir)
+                .map_err(|err| format!("Cannot create temporary file for PCAN library: {err}"))?;
+            file.write_all(PCAN_LIB)
+                .map_err(|err| format!("Cannot extract PCAN library: {err}"))?;
+            if let Err(err) = file.persist(&path) {
+                // Another process may have extracted (and loaded) it concurrently.
+                if !is_extracted() {
+                    return Err(format!("Cannot extract PCAN library: {err}"));
+                }
+            }
+        }
+        unsafe { Api::load(path_str(&path)?) }
+            .map_err(|err| format!("Cannot load PCAN library: {err}"))
     }
 
     /// Loads the PCAN library, if not done yet. Must be called before any other function.
