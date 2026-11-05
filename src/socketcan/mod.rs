@@ -1,9 +1,26 @@
 //! Implements an async interface to the Linux SocketCAN
+//!
+//! Use [`connect()`] to obtain a [`Sender`] and [`Receiver`] pair for an interface:
+//!
+//! ```no_run
+//! # tokio_test::block_on(async {
+//! use async_can::{socketcan, Message, Receiver, Sender};
+//!
+//! let (mut sender, mut receiver) = socketcan::connect("can0").unwrap();
+//! sender.send(Message::new_data(0x123, false, &[1, 2, 3]).unwrap()).await.unwrap();
+//! println!("{:?}", receiver.recv().await);
+//! # })
+//! ```
+//!
+//! Both halves share a single socket. SocketCAN delivers frames sent by other sockets on the same host,
+//! but not a socket's own frames, so the [`Receiver`] does not see the frames sent through its [`Sender`].
+//! For direct access to the socket, use [`CanSocket`].
 
 use std::ffi::{CString, c_void};
 use std::io::{self, ErrorKind};
 use std::mem::{MaybeUninit, size_of};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use std::future::poll_fn;
@@ -159,6 +176,62 @@ impl crate::Receiver for CanSocket {
     }
 }
 
+/// Opens a socket on the given interface and splits it into a [`Sender`] and a [`Receiver`].
+///
+/// Frames sent through the returned [`Sender`] are not received by the returned [`Receiver`].
+pub fn connect<T: AsRef<str>>(ifname: T) -> io::Result<(Sender, Receiver)> {
+    let socket = Arc::new(CanSocket::bind(ifname)?);
+    Ok((
+        Sender {
+            socket: socket.clone(),
+        },
+        Receiver { socket },
+    ))
+}
+
+/// Sends messages to a SocketCAN interface. Implements [`crate::Sender`].
+///
+/// Created with [`connect()`]. Clones share the same socket.
+#[derive(Clone)]
+pub struct Sender {
+    socket: Arc<CanSocket>,
+}
+
+impl Sender {
+    /// Send a [`crate::Message`] to the CAN bus
+    pub async fn send(&self, msg: Message) -> io::Result<()> {
+        self.socket.send(msg).await
+    }
+}
+
+#[async_trait]
+impl crate::Sender for Sender {
+    async fn send(&mut self, msg: Message) -> Result<()> {
+        Ok(self.socket.send(msg).await?)
+    }
+}
+
+/// Receives messages from a SocketCAN interface. Implements [`crate::Receiver`].
+///
+/// Created with [`connect()`].
+pub struct Receiver {
+    socket: Arc<CanSocket>,
+}
+
+impl Receiver {
+    /// Receive a [`crate::Message`] from the CAN bus
+    pub async fn recv(&self) -> io::Result<Message> {
+        self.socket.recv().await
+    }
+}
+
+#[async_trait]
+impl crate::Receiver for Receiver {
+    async fn recv(&mut self) -> Result<Message> {
+        Ok(self.socket.recv().await?)
+    }
+}
+
 /// Return the index of the given interface
 pub async fn get_interface_index_by_name(interface: &str) -> crate::Result<u32> {
     let devices = list_devices().await?;
@@ -260,6 +333,40 @@ pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    /// Requires a `vcan0` interface that is up, e.g.:
+    /// `ip link add dev vcan0 type vcan && ip link set vcan0 up`
+    #[ignore]
+    #[tokio::test]
+    async fn socketcan_send_receive() {
+        let (tx_a, rx_a) = connect("vcan0").expect("`vcan0` not available");
+        let (_tx_b, rx_b) = connect("vcan0").unwrap();
+
+        let msgs = [
+            Message::new_data(0x123, false, &[1, 2, 3]).unwrap(),
+            Message::new_data(0x1ABCDEF, true, &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap(),
+            Message::new_remote(0x42, false, 4).unwrap(),
+        ];
+        for msg in &msgs {
+            tx_a.send(msg.clone()).await.unwrap();
+        }
+        // Another socket on the same interface receives the frames...
+        for msg in &msgs {
+            let received = timeout(Duration::from_secs(1), rx_b.recv())
+                .await
+                .expect("timed out waiting for frame")
+                .unwrap();
+            assert_eq!(&received, msg);
+        }
+        // ... but the sending socket does not receive its own frames.
+        assert!(
+            timeout(Duration::from_millis(100), rx_a.recv())
+                .await
+                .is_err()
+        );
+    }
 
     #[ignore]
     #[tokio::test]
