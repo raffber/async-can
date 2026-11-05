@@ -365,6 +365,24 @@ impl PCan {
         Error::result(status)
     }
 
+    /// Returns the event currently registered for `channel`, or null if there is none.
+    #[cfg(target_os = "windows")]
+    pub fn registered_event(
+        channel: Handle,
+    ) -> Result<windows_sys::Win32::Foundation::HANDLE, Error> {
+        let mut event: windows_sys::Win32::Foundation::HANDLE = std::ptr::null_mut();
+        let status = unsafe {
+            pcan().api.CAN_GetValue(
+                channel,
+                sys::PCAN_RECEIVE_EVENT as u8,
+                &mut event as *mut windows_sys::Win32::Foundation::HANDLE as *mut c_void,
+                size_of::<windows_sys::Win32::Foundation::HANDLE>() as u32,
+            )
+        };
+        Error::result(status)?;
+        Ok(event)
+    }
+
     pub fn reset(channel: Handle) -> Result<(), Error> {
         let status = unsafe { pcan().api.CAN_Reset(channel) };
         Error::result(status)

@@ -9,6 +9,7 @@ use windows_sys::Win32::Foundation::WAIT_FAILED;
 use windows_sys::Win32::System::Threading::{CreateEventA, SetEvent, WaitForSingleObject};
 
 pub(crate) struct Waiter {
+    channel: Handle,
     /// Shared with the [`WaiterHandle`], so it stays open until both are dropped.
     event: Arc<OwnedHandle>,
     cancel: Arc<AtomicBool>,
@@ -35,6 +36,7 @@ impl Waiter {
         let cancel = Arc::new(AtomicBool::new(false));
         Ok((
             Waiter {
+                channel: handle,
                 event: event.clone(),
                 cancel: cancel.clone(),
             },
@@ -48,6 +50,20 @@ impl Waiter {
             return Err(crate::Error::Io(std::io::Error::last_os_error()));
         }
         Ok(self.cancel.load(Ordering::SeqCst))
+    }
+}
+
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        // Unregister the event from the driver before it is closed, so the driver doesn't signal
+        // a closed (or reused) handle. Another receiver on the same channel may have replaced
+        // the registration since, in which case it must be kept.
+        let event = self.event.as_raw_handle();
+        if PCan::registered_event(self.channel).is_ok_and(|registered| registered == event)
+            && let Err(err) = PCan::register_event(self.channel, null_mut())
+        {
+            log::debug!("Unregistering receive event failed: {}", err.description());
+        }
     }
 }
 
