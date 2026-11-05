@@ -25,7 +25,7 @@ impl Waiter {
     pub(crate) fn new(handle: Handle) -> crate::Result<(Self, WaiterHandle)> {
         let event_handle = unsafe {
             let handle = CreateEventA(null_mut(), 0, 0, null());
-            if handle == 0 {
+            if handle.is_null() {
                 panic!("CreateEventA failed. That should not happen...");
             }
             handle
