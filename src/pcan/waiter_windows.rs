@@ -2,52 +2,48 @@ use std::ptr::{null, null_mut};
 
 use super::api::PCan;
 use crate::pcan::api::Handle;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use windows_sys::Win32::Foundation::HANDLE;
-use windows_sys::Win32::Foundation::{CloseHandle, WAIT_FAILED};
+use windows_sys::Win32::Foundation::WAIT_FAILED;
 use windows_sys::Win32::System::Threading::{CreateEventA, SetEvent, WaitForSingleObject};
 
 pub(crate) struct Waiter {
-    event_handle: HANDLE,
+    /// Shared with the [`WaiterHandle`], so it stays open until both are dropped.
+    event: Arc<OwnedHandle>,
     cancel: Arc<AtomicBool>,
 }
-
-unsafe impl Send for Waiter {}
 
 pub(crate) struct WaiterHandle {
-    event_handle: HANDLE,
+    event: Arc<OwnedHandle>,
     cancel: Arc<AtomicBool>,
 }
-unsafe impl Send for WaiterHandle {}
 
 impl Waiter {
     pub(crate) fn new(handle: Handle) -> crate::Result<(Self, WaiterHandle)> {
-        let event_handle = unsafe {
+        let event = unsafe {
             let handle = CreateEventA(null_mut(), 0, 0, null());
             if handle.is_null() {
                 panic!("CreateEventA failed. That should not happen...");
             }
-            handle
+            // SAFETY: `handle` is a freshly created, valid event handle that nothing else owns.
+            Arc::new(OwnedHandle::from_raw_handle(handle))
         };
-        PCan::register_event(handle, event_handle);
+        PCan::register_event(handle, event.as_raw_handle());
         log::debug!("Waiter Event registered");
         let cancel = Arc::new(AtomicBool::new(false));
         Ok((
             Waiter {
-                event_handle,
+                event: event.clone(),
                 cancel: cancel.clone(),
             },
-            WaiterHandle {
-                event_handle,
-                cancel,
-            },
+            WaiterHandle { event, cancel },
         ))
     }
 
     pub(crate) fn wait_for_event(&self) -> crate::Result<bool> {
         unsafe {
-            let err = WaitForSingleObject(self.event_handle, 100);
+            let err = WaitForSingleObject(self.event.as_raw_handle(), 100);
             if err == WAIT_FAILED {
                 panic!("Waiting for event has failed!");
             }
@@ -56,19 +52,11 @@ impl Waiter {
     }
 }
 
-impl Drop for Waiter {
-    fn drop(&mut self) {
-        unsafe {
-            CloseHandle(self.event_handle);
-        }
-    }
-}
-
 impl WaiterHandle {
     pub(crate) fn close(&mut self) {
         self.cancel.store(true, Ordering::SeqCst);
         unsafe {
-            SetEvent(self.event_handle);
+            SetEvent(self.event.as_raw_handle());
         }
     }
 }
