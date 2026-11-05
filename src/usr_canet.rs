@@ -106,7 +106,8 @@ mod test {
 
     #[tokio::test]
     async fn round_trip() {
-        let listener = TcpListener::bind("127.0.0.1:1234").await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
         task::spawn(async move {
             let (mut connection, _) = listener.accept().await.unwrap();
             while let Ok(x) = connection.read_u8().await {
@@ -115,7 +116,7 @@ mod test {
                 }
             }
         });
-        let (mut tx, mut rx) = super::connect("127.0.0.1:1234").await.unwrap();
+        let (mut tx, mut rx) = super::connect(addr).await.unwrap();
 
         let tx_msg = Message::new_data(0xABCDEF, true, &[1, 2, 3, 4]).unwrap();
         tx.send(tx_msg.clone()).await.unwrap();
