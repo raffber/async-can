@@ -41,7 +41,7 @@ rtnetlink = { version = "0.24", optional = true }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security"] }
 
 [dev-dependencies]
-tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "time"] }
 tokio-test = "0.4.4"
 
 [features]

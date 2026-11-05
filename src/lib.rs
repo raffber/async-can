@@ -7,7 +7,7 @@
 //! use async_can::{pcan, socketcan};
 //!
 //! let mut receiver = pcan::Receiver::connect("usb1", 125000).unwrap();
-//! // or: let receiver = socketcan::Receiver::connect("can0").unwrap();
+//! // or: let (_, mut receiver) = socketcan::connect("can0").unwrap();
 //!
 //! for _ in 0 .. 10 {
 //!     let msg = receiver.recv().await;
@@ -27,7 +27,7 @@
 //! use async_can::Message;
 //!
 //! let mut sender = pcan::Sender::connect("usb1", 125000).unwrap();
-//! // or: let sender = socketcan::Sender::connect("can0").unwrap();
+//! // or: let (mut sender, _) = socketcan::connect("can0").unwrap();
 //!
 //! for k in 0 .. 10 {
 //!     let msg = Message::new_data(/*id=*/ k | 0x100, /*ext_id=*/ true, /* data=*/ &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();

@@ -7,6 +7,10 @@ Versions up to 0.3.0 were neither tagged nor published to crates.io. Their dates
 
 ## [Unreleased]
 
+### Added
+
+- `socketcan::connect()`, which opens a socket and splits it into a `socketcan::Sender` and `socketcan::Receiver`, in line with the other backends. Frames sent through the `Sender` are not received by its `Receiver`.
+
 ### Changed
 
 - **Breaking:** Minimum supported Rust version is now 1.88, and the crate uses edition 2024.

@@ -98,11 +98,15 @@ jobs:
           sudo apt-get install --yes "linux-modules-extra-$(uname -r)"
           sudo modprobe vcan
           sudo ip link add dev vcan0 type vcan
-      # Setting interfaces up and down requires CAP_NET_ADMIN, so run the test binary with sudo.
-      - name: Run vcan tests
+          sudo ip link set vcan0 up
+      - name: Send and receive on vcan0
+        run: cargo test --lib -- --ignored --exact socketcan::test::socketcan_send_receive
+      # Runs last because it leaves vcan0 down. Setting interfaces up and down requires
+      # CAP_NET_ADMIN, so run the test binary with sudo.
+      - name: Set vcan0 up and down
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo -E
-        run: cargo test --features socket_can --lib socketcan -- --ignored
+        run: cargo test --lib -- --ignored --exact socketcan::test::socketcan_devices_up_down
 
   spelling:
     name: Spelling
