@@ -7,33 +7,29 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1.57"
-byteorder = { version = "1.4", optional = true }
-dlopen = { version = "0.1.8", optional = true }
-dlopen_derive = { version = "0.1.4", optional = true }
-lazy_static = { version = "1", optional = true }
-log = "0.4"
+async-trait = "0.1.89"
+byteorder = { version = "1.5", optional = true }
+libloading = { version = "0.9", optional = true }
+log = "0.4.22"
 serde = { version = "1", features = ["derive"], optional = true }
-tempfile = { version = "3.1", optional = true }
-thiserror = "1"
-tokio = { version = "1", features = ["sync", "time", "rt", "net", "macros", "io-util"] }
+tempfile = { version = "3.20", optional = true }
+thiserror = "2"
+tokio = { version = "1.40", features = ["sync", "time", "rt", "net", "macros", "io-util"] }
 
 [target.'cfg(unix)'.dependencies]
-libc = { version = "0.2" }
-mio = { version = "0.7", features = ["os-ext"], optional = true }
-futures = { version = "0.3", optional = true }
-rtnetlink = { version = "0.11", optional = true }
+libc = "0.2.170"
+futures = { version = "0.3.31", optional = true }
+rtnetlink = { version = "0.24", optional = true }
 
 [target.'cfg(windows)'.dependencies]
-lazy_static = "1.4.0"
-windows-sys = { version = "0.36", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security"] }
 
 [dev-dependencies]
-tokio-test = "0.4"
+tokio-test = "0.4.4"
 
 [features]
 default = ["pcan", "socket_can", "usr_canet"]
-pcan = ["dep:dlopen", "dep:dlopen_derive", "dep:lazy_static", "dep:tempfile"]
-socket_can = ["dep:mio", "dep:futures", "dep:rtnetlink"]
+pcan = ["dep:libloading", "dep:tempfile"]
+socket_can = ["dep:futures", "dep:rtnetlink"]
 usr_canet = ["dep:byteorder"]
 serde = ["dep:serde"]

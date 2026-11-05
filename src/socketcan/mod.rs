@@ -3,23 +3,22 @@
 use std::ffi::{c_void, CString};
 use std::io::{self, ErrorKind};
 use std::mem::{size_of, MaybeUninit};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::raw::{c_int, c_short};
-use std::os::unix::io::{AsRawFd, RawFd};
 use std::task::{Context, Poll};
 
-use futures::future::poll_fn;
-use futures::{ready, TryStreamExt};
-use libc;
+use std::future::poll_fn;
+use std::task::ready;
+
+use futures::TryStreamExt;
 use libc::sockaddr;
-use mio::event::Source;
-use mio::unix::SourceFd;
-use rtnetlink::packet::nlas::link::{Info, InfoKind, Nla, State};
+use rtnetlink::packet_route::link::{InfoKind, LinkAttribute, LinkInfo, State};
+use rtnetlink::LinkUnspec;
 use tokio::io::unix::AsyncFd;
 
 use crate::socketcan::sys::{CanFrame, CanSocketAddr, AF_CAN};
 use crate::Message;
 use crate::{DeviceInfo, Result};
-use mio::{Interest, Registry, Token};
 
 use async_trait::async_trait;
 
@@ -27,15 +26,7 @@ mod sys;
 
 /// A type that connects to CAN socket
 pub struct CanSocket {
-    inner: AsyncFd<RawFd>,
-}
-
-impl Drop for CanSocket {
-    fn drop(&mut self) {
-        unsafe {
-            libc::close(self.as_raw_fd());
-        }
-    }
+    inner: AsyncFd<OwnedFd>,
 }
 
 impl AsRawFd for CanSocket {
@@ -56,6 +47,9 @@ impl CanSocket {
         if fd == -1 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: `fd` is a freshly created, valid socket that nothing else owns.
+        // Wrapping it right away ensures it is closed on every error path below.
+        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
         let addr = CanSocketAddr {
             _af_can: AF_CAN as c_short,
@@ -65,7 +59,7 @@ impl CanSocket {
         };
         let ok = unsafe {
             libc::bind(
-                fd,
+                fd.as_raw_fd(),
                 &addr as *const CanSocketAddr as *const sockaddr,
                 size_of::<CanSocketAddr>() as u32,
             )
@@ -76,12 +70,13 @@ impl CanSocket {
 
         // set non-blocking mode for asyncio
         let nonblocking = true;
-        let ok = unsafe { libc::ioctl(fd, libc::FIONBIO, &(nonblocking as c_int)) };
+        let ok = unsafe { libc::ioctl(fd.as_raw_fd(), libc::FIONBIO, &(nonblocking as c_int)) };
         if ok != 0 {
             return Err(io::Error::last_os_error());
         }
 
-        let inner = AsyncFd::new(fd)?;
+        // SAFETY: `OwnedFd` owns the descriptor and closes it only when the `AsyncFd` is dropped.
+        let inner = unsafe { AsyncFd::register(fd)? };
         Ok(Self { inner })
     }
 
@@ -118,13 +113,11 @@ impl CanSocket {
     }
 
     pub fn try_clone(&self) -> io::Result<Self> {
-        let new_fd = unsafe { libc::dup(self.as_raw_fd()) };
-        if new_fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(Self {
-            inner: AsyncFd::new(new_fd)?,
-        })
+        let new_fd = self.inner.get_ref().try_clone()?;
+        // SAFETY: `OwnedFd` owns the duplicated descriptor and closes it only when the
+        // `AsyncFd` is dropped.
+        let inner = unsafe { AsyncFd::register(new_fd)? };
+        Ok(Self { inner })
     }
 }
 
@@ -149,30 +142,6 @@ fn read_from_fd(fd: RawFd) -> io::Result<Message> {
         return Err(io::Error::last_os_error());
     }
     Ok(frame.into())
-}
-
-impl Source for CanSocket {
-    fn register(
-        &mut self,
-        registry: &Registry,
-        token: Token,
-        interests: Interest,
-    ) -> io::Result<()> {
-        SourceFd(&self.as_raw_fd()).register(registry, token, interests)
-    }
-
-    fn reregister(
-        &mut self,
-        registry: &Registry,
-        token: Token,
-        interests: Interest,
-    ) -> io::Result<()> {
-        SourceFd(&self.as_raw_fd()).reregister(registry, token, interests)
-    }
-
-    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
-        SourceFd(&self.as_raw_fd()).deregister(registry)
-    }
 }
 
 #[async_trait]
@@ -217,8 +186,7 @@ pub async fn set_interface_up(interface: &str) -> crate::Result<()> {
     tokio::spawn(con);
     handle
         .link()
-        .set(index)
-        .up()
+        .set(LinkUnspec::new_with_index(index).up().build())
         .execute()
         .await
         .map_err(|x| crate::Error::Other(format!("{}", x)))
@@ -238,8 +206,7 @@ pub async fn set_interface_down(interface: &str) -> crate::Result<()> {
     tokio::spawn(con);
     handle
         .link()
-        .set(index)
-        .down()
+        .set(LinkUnspec::new_with_index(index).down().build())
         .execute()
         .await
         .map_err(|x| crate::Error::Other(format!("{}", x)))
@@ -264,21 +231,19 @@ pub async fn list_devices() -> crate::Result<Vec<DeviceInfo>> {
             index: msg.header.index,
         };
         let mut is_can = false;
-        for nla in msg.nlas.into_iter() {
-            match nla {
-                Nla::IfName(name) => {
+        for attr in msg.attributes.into_iter() {
+            match attr {
+                LinkAttribute::IfName(name) => {
                     info.interface_name = name;
                 }
-                Nla::Info(infos) => {
+                LinkAttribute::LinkInfo(infos) => {
                     for info in infos {
-                        if let Info::Kind(InfoKind::Other(kind)) = info {
-                            if kind == "can" || kind == "vcan" {
-                                is_can = true;
-                            }
+                        if let LinkInfo::Kind(InfoKind::Can | InfoKind::Vcan) = info {
+                            is_can = true;
                         }
                     }
                 }
-                Nla::OperState(State::Up) | Nla::OperState(State::Unknown) => {
+                LinkAttribute::OperState(State::Up) | LinkAttribute::OperState(State::Unknown) => {
                     info.is_ready = true;
                 }
                 _ => {}

@@ -12,10 +12,9 @@ use std::os::unix::prelude::RawFd;
 
 use super::{sys, DeviceInfo};
 use crate::{CanFrameError, Message};
-use dlopen::wrapper::{Container, WrapperApi};
-use dlopen_derive::WrapperApi;
-use lazy_static::lazy_static;
+use libloading::Library;
 use std::os::raw::c_char;
+use std::sync::LazyLock;
 use tempfile::NamedTempFile;
 
 #[cfg(target_os = "windows")]
@@ -127,34 +126,52 @@ pub struct Timestamp {
     pub micros: u16,
 }
 
-#[derive(Clone, WrapperApi)]
-struct Api {
-    CAN_Initialize: unsafe extern "C" fn(
-        channel: Handle,
-        baud: Baudrate,
-        hw_type: HwType,
-        port: u32,
-        interrupt: u16,
-    ) -> Status,
-    CAN_Uninitialize: unsafe extern "C" fn(channel: Handle) -> Status,
-    CAN_Reset: unsafe extern "C" fn(channel: Handle) -> Status,
-    CAN_GetStatus: unsafe extern "C" fn(channel: Handle) -> Status,
-    CAN_Read: unsafe extern "C" fn(
-        channel: Handle,
-        msg: *mut PCanMessage,
-        timestamp: *mut Timestamp,
-    ) -> Status,
-    CAN_Write: unsafe extern "C" fn(channel: Handle, msg: *const PCanMessage) -> Status,
-    CAN_GetErrorText: unsafe extern "C" fn(error: Status, lang: u16, buf: *const c_char),
-    CAN_SetValue:
-        unsafe extern "C" fn(channel: Handle, param: u8, buf: *const c_void, len: u32) -> Status,
-    CAN_GetValue:
-        unsafe extern "C" fn(channel: Handle, param: u8, buf: *mut c_void, len: u32) -> Status,
+/// Generates the [`Api`] struct holding the loaded library and its function pointers.
+///
+/// Each function is also exposed as an `unsafe` method of the same name, so call sites read
+/// like `PCAN.api.CAN_Read(...)`.
+macro_rules! pcan_api {
+    ($($name:ident: fn($($arg:ident: $ty:ty),* $(,)?) $(-> $ret:ty)?;)*) => {
+        struct Api {
+            // Keeps the library loaded as long as the function pointers below are in use.
+            _lib: Library,
+            $($name: unsafe extern "C" fn($($ty),*) $(-> $ret)?,)*
+        }
+
+        impl Api {
+            /// # Safety
+            ///
+            /// The library at `path` must export the declared symbols with matching signatures.
+            unsafe fn load(path: &str) -> Result<Self, libloading::Error> {
+                let lib = Library::new(path)?;
+                $(
+                    let $name = *lib.get::<unsafe extern "C" fn($($ty),*) $(-> $ret)?>(stringify!($name))?;
+                )*
+                Ok(Self { _lib: lib, $($name,)* })
+            }
+
+            $(
+                unsafe fn $name(&self, $($arg: $ty),*) $(-> $ret)? {
+                    (self.$name)($($arg),*)
+                }
+            )*
+        }
+    };
 }
 
-lazy_static! {
-    static ref PCAN: PCan = PCan::new();
+pcan_api! {
+    CAN_Initialize: fn(channel: Handle, baud: Baudrate, hw_type: HwType, port: u32, interrupt: u16) -> Status;
+    CAN_Uninitialize: fn(channel: Handle) -> Status;
+    CAN_Reset: fn(channel: Handle) -> Status;
+    CAN_GetStatus: fn(channel: Handle) -> Status;
+    CAN_Read: fn(channel: Handle, msg: *mut PCanMessage, timestamp: *mut Timestamp) -> Status;
+    CAN_Write: fn(channel: Handle, msg: *const PCanMessage) -> Status;
+    CAN_GetErrorText: fn(error: Status, lang: u16, buf: *const c_char);
+    CAN_SetValue: fn(channel: Handle, param: u8, buf: *const c_void, len: u32) -> Status;
+    CAN_GetValue: fn(channel: Handle, param: u8, buf: *mut c_void, len: u32) -> Status;
 }
+
+static PCAN: LazyLock<PCan> = LazyLock::new(PCan::new);
 
 pub struct Error {
     pub code: u32,
@@ -208,7 +225,7 @@ impl Error {
 }
 
 pub struct PCan {
-    api: Container<Api>,
+    api: Api,
 }
 
 impl PCan {
@@ -217,8 +234,8 @@ impl PCan {
         tmpfile.write_all(PCAN_LIB).unwrap();
         let (_, path) = tmpfile.keep().unwrap();
         let name = path.to_str().unwrap();
-        let api: Container<Api> = unsafe { Container::load(name) }
-            .expect("Could not load PCan: Is the driver installed?");
+        let api =
+            unsafe { Api::load(name) }.expect("Could not load PCan: Is the driver installed?");
         PCan { api }
     }
 
@@ -294,10 +311,11 @@ impl PCan {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn register_event(channel: Handle, event: isize) {
+    pub fn register_event(channel: Handle, event: windows_sys::Win32::Foundation::HANDLE) {
         unsafe {
-            let event_int = event as usize;
-            let event_ptr = &event_int as *const usize as *const c_void;
+            // The driver expects a pointer to the event handle.
+            let event_ptr =
+                &event as *const windows_sys::Win32::Foundation::HANDLE as *const c_void;
             let status = PCAN.api.CAN_SetValue(
                 channel,
                 sys::PCAN_RECEIVE_EVENT as u8,
